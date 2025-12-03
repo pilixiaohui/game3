@@ -420,6 +420,14 @@ export interface ChunkTemplate {
     spawnPoints: { x: number, y: number, type: string }[];
 }
 
+export interface HarvestNodeDef {
+    id: string;
+    x: number;
+    y: number;
+    amount: number;
+    richness: number;
+}
+
 export interface IFxEvent {
     type: 'EXPLOSION' | 'FLASH' | 'PROJECTILE' | 'TEXT' | 'DAMAGE_POP' | 'SLASH' | 'SHOCKWAVE' | 'PARTICLES' | 'HEAL';
     x: number;

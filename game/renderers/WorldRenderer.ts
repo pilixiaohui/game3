@@ -1,6 +1,7 @@
 
+
 import { Application, Container, Graphics, TilingSprite, Text, TextStyle } from 'pixi.js';
-import { IUnit, ObstacleDef, UnitType, Faction, IFxEvent } from '../../types';
+import { IUnit, ObstacleDef, UnitType, Faction, IFxEvent, HarvestNodeDef } from '../../types';
 import { LANE_Y, UNIT_CONFIGS, ELEMENT_COLORS } from '../../constants';
 import { SimpleEventEmitter } from '../DataManager';
 
@@ -16,6 +17,7 @@ export class WorldRenderer {
     public hiveLayer: Container;
     
     private obstacleGraphics: Graphics[] = [];
+    private harvestNodeGraphics: Graphics[] = [];
 
     constructor(element: HTMLElement, events: SimpleEventEmitter) {
         this.app = new Application({ 
@@ -66,6 +68,7 @@ export class WorldRenderer {
         // Listen for FX Events
         events.on('FX', this.handleFxEvent.bind(this));
         events.on('TERRAIN_UPDATED', (obstacles: ObstacleDef[]) => this.drawTerrain(obstacles));
+        events.on('HARVEST_NODES_UPDATED', (nodes: HarvestNodeDef[]) => this.drawHarvestNodes(nodes));
     }
 
     private handleFxEvent(e: IFxEvent) {
@@ -91,6 +94,8 @@ export class WorldRenderer {
         } else if (e.type === 'HEAL') {
              // Create text helper
              this.handleFxEvent({ type: 'TEXT', x: e.x, y: e.y - 10, text: '+', color: 0x00ff00, fontSize: 14 });
+        } else if (e.type === 'DAMAGE_POP') {
+             this.handleFxEvent({ type: 'TEXT', x: e.x, y: e.y - 10, text: e.text, color: e.color, fontSize: e.fontSize });
         }
     }
 
@@ -268,10 +273,45 @@ export class WorldRenderer {
             this.terrainLayer.addChild(g);
         });
     }
+
+    public drawHarvestNodes(nodes: HarvestNodeDef[]) {
+        this.harvestNodeGraphics.forEach(g => { g.clear(); g.destroy(); });
+        this.harvestNodeGraphics = [];
+        
+        if (nodes.length > 0) {
+            // Re-draw central hive depot
+            const hive = new Graphics();
+            hive.beginFill(0x550055);
+            hive.drawCircle(0, 0, 40);
+            hive.lineStyle(2, 0xaa00aa);
+            hive.drawCircle(0, 0, 45 + Math.sin(Date.now()/500)*5);
+            hive.endFill();
+            this.terrainLayer.addChild(hive);
+            this.harvestNodeGraphics.push(hive);
+        }
+
+        nodes.forEach(node => {
+            const multiplier = node.richness;
+            const g = new Graphics(); 
+            // Richer nodes are brighter
+            const alpha = Math.min(1.0, 0.4 * multiplier);
+            g.beginFill(0x00ff00, alpha); 
+            g.drawCircle(0, 0, 15 + (multiplier * 2)); 
+            g.beginFill(0x004400, 0.8);
+            g.drawCircle(0, 0, 5);
+            g.endFill(); 
+            g.position.set(node.x, node.y);
+            
+            this.terrainLayer.addChild(g);
+            this.harvestNodeGraphics.push(g);
+        });
+    }
     
     public clear() {
         this.obstacleGraphics.forEach(g => { g.clear(); g.destroy(); });
         this.obstacleGraphics = [];
+        this.harvestNodeGraphics.forEach(g => { g.clear(); g.destroy(); });
+        this.harvestNodeGraphics = [];
         this.activeParticles.forEach(p => p.view.destroy());
         this.activeParticles = [];
     }

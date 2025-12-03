@@ -1,7 +1,7 @@
 
+
 import { DataManager, SimpleEventEmitter } from '../DataManager';
 import { UnitPool } from '../Unit';
-import { WorldRenderer } from '../renderers/WorldRenderer';
 import { ObstacleDef, RegionData, Faction, UnitType } from '../../types';
 import { TERRAIN_CHUNKS } from '../../config/terrain';
 import { STAGE_WIDTH, LANE_Y } from '../../constants';
@@ -12,12 +12,10 @@ export class LevelManager {
     public cameraX: number = 0;
     public activeObstacles: ObstacleDef[] = [];
     
-    private renderer: WorldRenderer;
     private unitPool: UnitPool;
     private events: SimpleEventEmitter;
 
-    constructor(renderer: WorldRenderer, unitPool: UnitPool, events: SimpleEventEmitter) {
-        this.renderer = renderer;
+    constructor(unitPool: UnitPool, events: SimpleEventEmitter) {
         this.unitPool = unitPool;
         this.events = events;
     }
@@ -54,7 +52,7 @@ export class LevelManager {
         if (targetX > limitX - 200) targetX = limitX - 200;
         
         this.cameraX += (targetX - this.cameraX) * 0.1;
-        this.renderer.resize(this.renderer.world.scale.x, this.cameraX, 'COMBAT_VIEW');
+        // Camera application is now handled by GameEngine reading `this.cameraX`
     }
 
     public generateTerrain(stageIndex: number) {

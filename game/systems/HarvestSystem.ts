@@ -1,18 +1,17 @@
 
-import { Graphics } from 'pixi.js';
+
 import { UnitPool, Unit } from '../Unit';
-import { WorldRenderer } from '../renderers/WorldRenderer';
-import { DataManager } from '../DataManager';
-import { Faction, UnitType } from '../../types';
+import { DataManager, SimpleEventEmitter } from '../DataManager';
+import { Faction, UnitType, HarvestNodeDef } from '../../types';
 
 export class HarvestSystem {
     private unitPool: UnitPool;
-    private renderer: WorldRenderer;
-    private harvestNodes: { x: number, y: number, amount: number, view: Graphics }[] = [];
+    private events: SimpleEventEmitter;
+    private harvestNodes: HarvestNodeDef[] = [];
 
-    constructor(unitPool: UnitPool, renderer: WorldRenderer) {
+    constructor(unitPool: UnitPool, events: SimpleEventEmitter) {
         this.unitPool = unitPool;
-        this.renderer = renderer;
+        this.events = events;
     }
 
     public init(regionId: number) {
@@ -27,8 +26,8 @@ export class HarvestSystem {
     }
 
     public cleanup() {
-         this.harvestNodes.forEach(n => n.view.destroy());
          this.harvestNodes = [];
+         this.events.emit('HARVEST_NODES_UPDATED', []);
     }
 
     public update(dt: number) {
@@ -36,15 +35,6 @@ export class HarvestSystem {
         for (const u of units) {
             if (u.faction === Faction.ZERG) {
                 this.updateHarvester(u, dt);
-                
-                // Visual Sync
-                if (u.view) {
-                     u.view.position.set(u.x, u.y);
-                     // Very simple rotation to face movement
-                     if (u.steeringForce.x !== 0) {
-                         u.view.scale.x = u.steeringForce.x > 0 ? 1 : -1;
-                     }
-                }
             }
         }
     }
@@ -52,40 +42,28 @@ export class HarvestSystem {
     private generateHarvestNodes(multiplier: number) {
         const baseNodes = 6;
         const count = Math.floor(baseNodes * Math.sqrt(multiplier));
-        
+        this.harvestNodes = [];
+
         for(let i=0; i<count; i++) {
             // Scatter nodes around center
             const dist = 200 + Math.random() * 400;
             const angle = Math.random() * Math.PI * 2;
             const x = Math.cos(angle) * dist; 
             const y = Math.sin(angle) * dist * 0.5; // Elliptical distribution
-
-            const g = new Graphics(); 
-            // Richer nodes are brighter
-            const alpha = Math.min(1.0, 0.4 * multiplier);
-            g.beginFill(0x00ff00, alpha); 
-            g.drawCircle(0, 0, 15 + (multiplier * 2)); 
-            g.beginFill(0x004400, 0.8);
-            g.drawCircle(0, 0, 5);
-            g.endFill(); 
-            g.position.set(x, y);
             
-            this.renderer.terrainLayer.addChild(g);
-            this.harvestNodes.push({ x, y, amount: 9999, view: g });
+            this.harvestNodes.push({
+                id: `node_${i}_${Date.now()}`,
+                x, y, 
+                amount: 9999, // Infinite for now
+                richness: multiplier
+            });
         }
         
-        // Draw Central Hive Depot
-        const hive = new Graphics();
-        hive.beginFill(0x550055);
-        hive.drawCircle(0, 0, 40);
-        hive.lineStyle(2, 0xaa00aa);
-        hive.drawCircle(0, 0, 45 + Math.sin(Date.now()/500)*5);
-        hive.endFill();
-        this.renderer.terrainLayer.addChild(hive);
+        this.events.emit('HARVEST_NODES_UPDATED', this.harvestNodes);
     }
     
     private spawnHarvesters() {
-        // Spawn count based on stockpile or upgrades could go here
+        // Spawn count based on stockpile or upgrades
         const count = 15;
         
         for(let i=0; i<count; i++) {
@@ -166,6 +144,17 @@ export class HarvestSystem {
          else if (u.state === 'DEPOSIT') {
              // Instant deposit
              DataManager.instance.modifyResource('biomass', u.context.carryAmount);
+             
+             // Visual Feedback
+             this.events.emit('FX', { 
+                 type: 'TEXT', 
+                 x: u.x, 
+                 y: u.y - 20, 
+                 text: '+' + Math.floor(u.context.carryAmount), 
+                 color: 0x4ade80, // Green
+                 fontSize: 10 
+             });
+
              u.context.carryAmount = 0;
              u.state = 'IDLE'; // Loop back to seek
          }

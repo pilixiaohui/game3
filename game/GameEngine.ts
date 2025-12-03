@@ -1,4 +1,5 @@
 
+
 import { Graphics, Text, TextStyle } from 'pixi.js';
 import { Faction, GameModifiers, UnitType, GameStateSnapshot, IUnit, IGameEngine, StatusType } from '../types';
 import { ELEMENT_COLORS } from '../constants';
@@ -51,9 +52,9 @@ export class GameEngine implements IGameEngine {
     this.unitPool = new UnitPool(1500, this.renderer);
     
     // Initialize Systems
-    this.levelManager = new LevelManager(this.renderer, this.unitPool, this.events);
+    this.levelManager = new LevelManager(this.unitPool, this.events);
     this.combatSystem = new CombatSystem(this, this.unitPool, this.spatialHash, this.levelManager);
-    this.harvestSystem = new HarvestSystem(this.unitPool, this.renderer);
+    this.harvestSystem = new HarvestSystem(this.unitPool, this.events);
     this.hiveVisualSystem = new HiveVisualSystem(this.unitPool, this.renderer);
 
     // @ts-ignore
@@ -84,6 +85,7 @@ export class GameEngine implements IGameEngine {
       if (logicalWidth < MIN_LOGICAL_WIDTH) baseScale = w / MIN_LOGICAL_WIDTH;
       
       const scaleFactor = baseScale * this.userZoom;
+      // Sync camera immediately on resize
       this.renderer.resize(scaleFactor, this.levelManager.cameraX, this.mode);
   }
 
@@ -121,7 +123,6 @@ export class GameEngine implements IGameEngine {
     const dt = delta / 60; 
 
     // UNIFIED HEARTBEAT: Only the Authority drives the Data Manager
-    // This logic is correct: UndergroundView (Auth=true) drives economy.
     if (this.isSimulationAuthority) {
         DataManager.instance.updateTick(dt);
     }
@@ -136,10 +137,13 @@ export class GameEngine implements IGameEngine {
         this.renderer.updateParticles(dt);
         return;
     } else if (this.mode === 'COMBAT_VIEW') {
-        // FIXED: Combat logic MUST run regardless of Authority. 
-        // Previously, this was deadlocked because SurfaceView has Authority=false.
         this.combatSystem.update(dt);
         this.levelManager.update(dt, this.unitPool?.getActiveUnits() || []);
+        
+        // SYNC CAMERA: Logic calculates it, Engine applies it to Renderer
+        if (this.renderer) {
+             this.renderer.resize(this.renderer.world.scale.x, this.levelManager.cameraX, this.mode);
+        }
     }
 
     // Visual Updates (Run on both engines)
@@ -177,34 +181,43 @@ export class GameEngine implements IGameEngine {
   public processDamagePipeline(source: IUnit, target: IUnit) { this.combatSystem.processDamagePipeline(source, target); }
   public performAttack(source: IUnit, target: IUnit) { this.combatSystem.performAttack(source, target); }
   
-  // FX Methods - Now Decoupled via Events
-  public createExplosion(x: number, y: number, radius: number, color: number = 0xffaa00) { 
-      this.events.emit('FX', { type: 'EXPLOSION', x, y, radius, color }); 
+  // FX Implementations required by IGameEngine
+  public createExplosion(x: number, y: number, radius: number, color: number = 0xFFFFFF) {
+      this.events.emit('FX', { type: 'EXPLOSION', x, y, radius, color });
   }
-  public createFlash(x: number, y: number, color: number) { 
+
+  public createFlash(x: number, y: number, color: number) {
       this.events.emit('FX', { type: 'FLASH', x, y, color });
   }
+
   public createProjectile(x1: number, y1: number, x2: number, y2: number, color: number) {
       this.events.emit('FX', { type: 'PROJECTILE', x: x1, y: y1, x2, y2, color });
   }
+
   public createFloatingText(x: number, y: number, text: string, color: number, fontSize: number = 12) {
       this.events.emit('FX', { type: 'TEXT', x, y, text, color, fontSize });
   }
-  public createDamagePop(x: number, y: number, value: number, element: string) { 
-      this.createFloatingText(x, y, Math.floor(value).toString(), ELEMENT_COLORS[element as keyof typeof ELEMENT_COLORS] || 0xffffff, 14); 
+
+  public createDamagePop(x: number, y: number, value: number, element: string) {
+      const color = ELEMENT_COLORS[element as keyof typeof ELEMENT_COLORS] || 0xFFFFFF;
+      this.events.emit('FX', { type: 'DAMAGE_POP', x, y, text: Math.floor(value).toString(), color, fontSize: 14 });
   }
+
   public createSlash(x: number, y: number, targetX: number, targetY: number, color: number) {
       this.events.emit('FX', { type: 'SLASH', x, y, targetX, targetY, color });
   }
+
   public createShockwave(x: number, y: number, radius: number, color: number) {
       this.events.emit('FX', { type: 'SHOCKWAVE', x, y, radius, color });
   }
+
   public createParticles(x: number, y: number, color: number, count: number) {
       this.events.emit('FX', { type: 'PARTICLES', x, y, color, count });
   }
-  public createHealEffect(x: number, y: number) { 
+
+  public createHealEffect(x: number, y: number) {
       this.events.emit('FX', { type: 'HEAL', x, y });
   }
-  
+
   public destroy() { this.renderer?.destroy(); }
 }

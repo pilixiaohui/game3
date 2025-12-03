@@ -78,8 +78,8 @@ export class ReactionRegistry {
 ReactionRegistry.register('FROZEN', 'THERMAL', (target, engine) => {
     if (target.statuses['FROZEN'] && target.statuses['FROZEN']!.stacks >= STATUS_CONFIG.REACTION_THRESHOLD_MINOR) {
         delete target.statuses['FROZEN'];
-        engine.createFloatingText(target.x, target.y - 50, "THERMAL SHOCK!", 0xffaa00, 16);
-        engine.createExplosion(target.x, target.y, 40, 0xffaa00);
+        engine.events.emit('FX', { type: 'TEXT', x: target.x, y: target.y - 50, text: "THERMAL SHOCK!", color: 0xffaa00, fontSize: 16 });
+        engine.events.emit('FX', { type: 'EXPLOSION', x: target.x, y: target.y, radius: 40, color: 0xffaa00 });
         engine.dealTrueDamage(target, target.stats.maxHp * 0.2); 
     }
 });
@@ -87,20 +87,20 @@ ReactionRegistry.register('FROZEN', 'THERMAL', (target, engine) => {
 ReactionRegistry.register('FROZEN', 'PHYSICAL', (target, engine) => {
     if (target.statuses['FROZEN'] && target.statuses['FROZEN']!.stacks >= STATUS_CONFIG.REACTION_THRESHOLD_MAJOR) {
         delete target.statuses['FROZEN'];
-        engine.createFloatingText(target.x, target.y - 50, "SHATTER!", 0xa5f3fc, 16);
-        engine.createDamagePop(target.x, target.y - 40, Math.floor(target.stats.maxHp * 0.15), 'CRYO');
+        engine.events.emit('FX', { type: 'TEXT', x: target.x, y: target.y - 50, text: "SHATTER!", color: 0xa5f3fc, fontSize: 16 });
+        engine.events.emit('FX', { type: 'DAMAGE_POP', x: target.x, y: target.y - 40, text: Math.floor(target.stats.maxHp * 0.15).toString(), color: 0x60a5fa, fontSize: 14 });
         engine.dealTrueDamage(target, target.stats.maxHp * 0.15);
     }
 });
 
 ReactionRegistry.register('POISONED', 'VOLTAIC', (target, engine) => {
     engine.applyStatus(target, 'ARMOR_BROKEN', 1, 10);
-    engine.createFloatingText(target.x, target.y - 50, "CORRODED!", 0x4ade80, 16);
+    engine.events.emit('FX', { type: 'TEXT', x: target.x, y: target.y - 50, text: "CORRODED!", color: 0x4ade80, fontSize: 16 });
 });
 
 ReactionRegistry.register('SHOCKED', 'CRYO', (target, engine) => {
     engine.applyStatus(target, 'FROZEN', 20, 10);
-    engine.createFloatingText(target.x, target.y - 50, "SUPERCONDUCT!", 0x60a5fa, 16);
+    engine.events.emit('FX', { type: 'TEXT', x: target.x, y: target.y - 50, text: "SUPERCONDUCT!", color: 0x60a5fa, fontSize: 16 });
 });
 
 export class GeneLibrary {
@@ -127,7 +127,7 @@ GeneLibrary.register({
         if (self.stats.hp < self.stats.maxHp && !self.isDead) {
             const heal = damage * ratio;
             self.stats.hp = Math.min(self.stats.maxHp, self.stats.hp + heal);
-            if (Math.random() < 0.2) engine.createHealEffect(self.x, self.y);
+            if (Math.random() < 0.2) engine.events.emit('FX', { type: 'HEAL', x: self.x, y: self.y });
         }
     }
 });
@@ -142,7 +142,7 @@ GeneLibrary.register({
         if ((target.stats.hp / target.stats.maxHp) < threshold) {
             const extra = damage * (mult - 1);
             engine.dealTrueDamage(target, extra);
-            engine.createFloatingText(target.x, target.y - 40, "CRUSH!", 0xff0000, 14);
+            engine.events.emit('FX', { type: 'TEXT', x: target.x, y: target.y - 40, text: "CRUSH!", color: 0xff0000, fontSize: 14 });
         }
     }
 });
@@ -155,7 +155,7 @@ GeneLibrary.register({
         if (diff > 2.0) {
             const extraPct = params.extraPct || 0.05;
             engine.dealTrueDamage(target, target.stats.maxHp * extraPct);
-            if (Math.random() < 0.3) engine.createFloatingText(target.x, target.y - 40, "SLAYER", 0xffaa00, 10);
+            if (Math.random() < 0.3) engine.events.emit('FX', { type: 'TEXT', x: target.x, y: target.y - 40, text: "SLAYER", color: 0xffaa00, fontSize: 10 });
         }
     }
 });
@@ -223,7 +223,7 @@ GeneLibrary.register({
         
         if (nextTarget) {
             // Visuals
-            engine.createProjectile(target.x, target.y, nextTarget.x, nextTarget.y, 0xfacc15);
+            engine.events.emit('FX', { type: 'PROJECTILE', x: target.x, y: target.y, x2: nextTarget.x, y2: nextTarget.y, color: 0xfacc15 });
             
             // State Management for Recursion
             self.context.chainDepth = currentDepth + 1;
@@ -265,7 +265,7 @@ GeneLibrary.register({
         
         // Reset attack cooldown for immediate strike
         self.attackCooldown = 0;
-        engine.createFloatingText(self.x, self.y - 40, "RAMPAGE!", 0xff00ff, 16);
+        engine.events.emit('FX', { type: 'TEXT', x: self.x, y: self.y - 40, text: "RAMPAGE!", color: 0xff00ff, fontSize: 16 });
     }
 });
 
@@ -281,7 +281,7 @@ GeneLibrary.register({
         const distSq = (self.x - attacker.x)**2 + (self.y - attacker.y)**2;
         if (distSq < 100*100) {
             engine.dealTrueDamage(attacker, damage * reflect);
-            engine.createFlash(self.x, self.y, 0x88ff88);
+            engine.events.emit('FX', { type: 'FLASH', x: self.x, y: self.y, color: 0x88ff88 });
         }
         return damage;
     }
@@ -294,7 +294,7 @@ GeneLibrary.register({
         const flatBlock = params.amount || 5;
         const reduced = Math.max(1, damage - flatBlock);
         if (damage > reduced) {
-             if (Math.random() < 0.2) engine.createFloatingText(self.x, self.y - 20, "BLOCK", 0xaaaaaa, 10);
+             if (Math.random() < 0.2) engine.events.emit('FX', { type: 'TEXT', x: self.x, y: self.y - 20, text: "BLOCK", color: 0xaaaaaa, fontSize: 10 });
         }
         return reduced;
     }
@@ -309,13 +309,13 @@ GeneLibrary.register({
         const neighbors = engine._sharedQueryBuffer;
         const count = engine.spatialHash.query(self.x, self.y, range, neighbors);
         
-        engine.createShockwave(self.x, self.y, range, 0x00ff00);
+        engine.events.emit('FX', { type: 'SHOCKWAVE', x: self.x, y: self.y, radius: range, color: 0x00ff00 });
         
         for(let i=0; i<count; i++) {
             const u = neighbors[i];
             if (u.faction === self.faction && !u.isDead) {
                 u.stats.hp = Math.min(u.stats.maxHp, u.stats.hp + heal);
-                engine.createHealEffect(u.x, u.y);
+                engine.events.emit('FX', { type: 'HEAL', x: u.x, y: u.y });
             }
         }
     }
@@ -328,15 +328,15 @@ GeneLibrary.register({
         self.context.phaseCharge = (self.context.phaseCharge || 0) + dt;
         if (self.context.phaseCharge >= 10 && !self.context.phaseReady) {
             self.context.phaseReady = true;
-            engine.createFloatingText(self.x, self.y - 20, "SHIELD UP", 0x60a5fa, 10);
+            engine.events.emit('FX', { type: 'TEXT', x: self.x, y: self.y - 20, text: "SHIELD UP", color: 0x60a5fa, fontSize: 10 });
         }
     },
     onWasHit: (self, attacker, damage, engine, params) => {
         if (self.context.phaseReady) {
             self.context.phaseReady = false;
             self.context.phaseCharge = 0;
-            engine.createShockwave(self.x, self.y, 20, 0x60a5fa);
-            engine.createFloatingText(self.x, self.y - 20, "PHASED", 0x60a5fa, 10);
+            engine.events.emit('FX', { type: 'SHOCKWAVE', x: self.x, y: self.y, radius: 20, color: 0x60a5fa });
+            engine.events.emit('FX', { type: 'TEXT', x: self.x, y: self.y - 20, text: "PHASED", color: 0x60a5fa, fontSize: 10 });
             return 0; // Negate damage
         }
         return damage;
@@ -368,7 +368,7 @@ GeneLibrary.register({
             if (self.context.idleTime > 2.0) {
                 // Heal fast
                 self.stats.hp = Math.min(self.stats.maxHp, self.stats.hp + self.stats.maxHp * 0.1 * dt);
-                if (Math.random() < 0.05) engine.createHealEffect(self.x, self.y);
+                if (Math.random() < 0.05) engine.events.emit('FX', { type: 'HEAL', x: self.x, y: self.y });
                 if (self.view) self.view.alpha = 0.5; // Visual stealth
             }
         } else {
@@ -395,7 +395,7 @@ GeneLibrary.register({
                 velocity.x *= speedMult;
                 velocity.y *= speedMult;
                 self.context['dash_cd'] = 5.0;
-                engine.createFloatingText(self.x, self.y - 30, "CHARGE!", 0xffffff, 12);
+                engine.events.emit('FX', { type: 'TEXT', x: self.x, y: self.y - 30, text: "CHARGE!", color: 0xffffff, fontSize: 12 });
             }
         }
     }
@@ -431,7 +431,7 @@ GeneLibrary.register({
             if (u.faction === self.faction) {
                 // Apply FRENZY Status (Handled in processDamagePipeline for +25% DMG)
                 engine.applyStatus(u, 'FRENZY', 1, 0.6); // Duration covers tick interval
-                if (Math.random() < 0.1) engine.createParticles(u.x, u.y, 0xff00ff, 1);
+                if (Math.random() < 0.1) engine.events.emit('FX', { type: 'PARTICLES', x: u.x, y: u.y, color: 0xff00ff, count: 1 });
             }
         }
     }
@@ -454,7 +454,7 @@ GeneLibrary.register({
             if (u.faction !== self.faction && !u.isDead) {
                 // Apply SLOWED Status
                 engine.applyStatus(u, 'SLOWED', 1, 0.6);
-                if (Math.random() < 0.1) engine.createFloatingText(u.x, u.y - 10, "FEAR", 0x880000, 8);
+                if (Math.random() < 0.1) engine.events.emit('FX', { type: 'TEXT', x: u.x, y: u.y - 10, text: "FEAR", color: 0x880000, fontSize: 8 });
             }
         }
     }
@@ -466,7 +466,7 @@ GeneLibrary.register({
     onHit: (self, target, damage, engine, params) => {
         if (Math.random() < (params.chance || 0.15)) {
             engine.applyStatus(target, 'STUNNED', 1, 1.0);
-            engine.createFloatingText(target.x, target.y - 20, "STUN", 0xffff00, 12);
+            engine.events.emit('FX', { type: 'TEXT', x: target.x, y: target.y - 20, text: "STUN", color: 0xffff00, fontSize: 12 });
         }
     }
 });
@@ -485,7 +485,7 @@ GeneLibrary.register({
             const offsetX = (Math.random() - 0.5) * 20;
             engine.spawnUnit(self.faction, type, self.x + offsetX);
         }
-        engine.createFloatingText(self.x, self.y, "SPAWN!", 0x00ff00, 20);
+        engine.events.emit('FX', { type: 'TEXT', x: self.x, y: self.y, text: "SPAWN!", color: 0x00ff00, fontSize: 20 });
     }
 });
 
@@ -603,8 +603,8 @@ GeneLibrary.register({
     id: 'GENE_MELEE_ATTACK',
     name: 'Melee Strike',
     onPreAttack: (self, target, engine, params) => {
-        engine.createSlash(self.x, self.y, target.x, target.y, ELEMENT_COLORS[self.stats.element] || 0xffffff);
-        engine.createFlash(target.x + (Math.random() * 10 - 5), target.y - 10, ELEMENT_COLORS[self.stats.element] || 0xffffff);
+        engine.events.emit('FX', { type: 'SLASH', x: self.x, y: self.y, targetX: target.x, targetY: target.y, color: ELEMENT_COLORS[self.stats.element] || 0xffffff });
+        engine.events.emit('FX', { type: 'FLASH', x: target.x + (Math.random() * 10 - 5), y: target.y - 10, color: ELEMENT_COLORS[self.stats.element] || 0xffffff });
         engine.processDamagePipeline(self, target);
         return false; 
     }
@@ -615,7 +615,7 @@ GeneLibrary.register({
     name: 'Ranged Projectile',
     onPreAttack: (self, target, engine, params) => {
         const color = params.projectileColor || ELEMENT_COLORS[self.stats.element] || 0xffffff;
-        engine.createProjectile(self.x, self.y - 15, target.x, target.y - 15, color);
+        engine.events.emit('FX', { type: 'PROJECTILE', x: self.x, y: self.y - 15, x2: target.x, y2: target.y - 15, color });
         // Instant damage for responsiveness, projectile is visual
         engine.processDamagePipeline(self, target);
         return false; 
@@ -627,7 +627,7 @@ GeneLibrary.register({
     name: 'Lobbed Shot',
     onPreAttack: (self, target, engine, params) => {
         const color = params.color || ELEMENT_COLORS[self.stats.element] || 0xff7777;
-        engine.createProjectile(self.x, self.y - (params.arcHeight || 20), target.x, target.y, color); 
+        engine.events.emit('FX', { type: 'PROJECTILE', x: self.x, y: self.y - (params.arcHeight || 20), x2: target.x, y2: target.y, color }); 
         // Instant damage, arc is visual
         engine.processDamagePipeline(self, target);
         return false;
@@ -639,10 +639,10 @@ GeneLibrary.register({
     name: 'Cleave',
     onPreAttack: (self, target, engine, params) => {
         const color = ELEMENT_COLORS[self.stats.element] || 0xffff00;
-        engine.createFlash(target.x, target.y, color);
+        engine.events.emit('FX', { type: 'FLASH', x: target.x, y: target.y, color });
         
         const radius = params.radius || 40;
-        engine.createShockwave(target.x, target.y, radius, color);
+        engine.events.emit('FX', { type: 'SHOCKWAVE', x: target.x, y: target.y, radius, color });
         
         engine.processDamagePipeline(self, target);
         
@@ -671,7 +671,7 @@ GeneLibrary.register({
         if (el === 'VOLTAIC') engine.applyStatus(target, 'SHOCKED', amount, 5);
         if (el === 'TOXIN') engine.applyStatus(target, 'POISONED', amount, 5);
         
-        engine.createParticles(target.x, target.y, ELEMENT_COLORS[el] || 0xffffff, 3);
+        engine.events.emit('FX', { type: 'PARTICLES', x: target.x, y: target.y, color: ELEMENT_COLORS[el] || 0xffffff, count: 3 });
     }
 });
 
@@ -685,7 +685,7 @@ GeneLibrary.register({
             if (self.stats.hp > self.stats.maxHp) self.stats.hp = self.stats.maxHp;
             
             // Visual
-            if (Math.random() < 0.05) engine.createHealEffect(self.x, self.y);
+            if (Math.random() < 0.05) engine.events.emit('FX', { type: 'HEAL', x: self.x, y: self.y });
         }
     }
 });
@@ -696,8 +696,8 @@ GeneLibrary.register({
     onDeath: (self, engine, params) => {
         const radius = params.radius || 60;
         const dmg = params.damage || 40;
-        engine.createExplosion(self.x, self.y, radius, ELEMENT_COLORS[self.stats.element]);
-        engine.createShockwave(self.x, self.y, radius, ELEMENT_COLORS[self.stats.element]);
+        engine.events.emit('FX', { type: 'EXPLOSION', x: self.x, y: self.y, radius, color: ELEMENT_COLORS[self.stats.element] });
+        engine.events.emit('FX', { type: 'SHOCKWAVE', x: self.x, y: self.y, radius, color: ELEMENT_COLORS[self.stats.element] });
         
         const neighbors = engine._sharedQueryBuffer;
         const count = engine.spatialHash.query(self.x, self.y, radius, neighbors);
