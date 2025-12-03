@@ -1,4 +1,5 @@
 
+
 import { Application, Container, Graphics, TilingSprite, Text, TextStyle, Texture, Sprite, RenderTexture, Rectangle } from 'pixi.js';
 import { IUnit, ObstacleDef, UnitType, Faction, IFxEvent, HarvestNodeDef } from '../../types';
 import { LANE_Y, UNIT_CONFIGS, ELEMENT_COLORS } from '../../constants';
@@ -84,7 +85,8 @@ export class WorldRenderer {
 
         this.hiveLayer = new Container(); this.hiveLayer.zIndex = 6;
         
-        // Container for units (ParticleContainer removed in v8)
+        // High Performance Unit Layer
+        // Replaced ParticleContainer with Container to fix version mismatch error.
         this.unitLayer = new Container();
         this.unitLayer.zIndex = 10;
         
@@ -265,7 +267,7 @@ export class WorldRenderer {
         const view = unit.view as Sprite;
 
         if (unit.isDead || !unit.active) {
-             view.alpha = 0; // Hide it, effectively culling it from rendering in Container
+             view.alpha = 0; // Hide it
              return;
         }
 
@@ -278,17 +280,23 @@ export class WorldRenderer {
         if (mode === 'COMBAT_VIEW') {
             const dir = (unit.faction === Faction.ZERG) ? 1 : -1;
             
-            // JUICE: Squash and Stretch based on speed
-            if (unit.stats.speed > 0) {
-                 if (unit.state === 'MOVE' || unit.state === 'ATTACK') {
-                      const speedRatio = Math.min(1, unit.stats.speed / 200) * 0.15;
-                      scaleX = dir * (1 + speedRatio);
-                      scaleY = 1 - speedRatio;
-                 } else {
-                      scaleX = dir;
-                 }
+            // JUICINESS: Squash and Stretch based on real-time velocity
+            // Uses velocity passed from physics system
+            if (unit.velocity) {
+                const speedSq = unit.velocity.x * unit.velocity.x + unit.velocity.y * unit.velocity.y;
+                if (speedSq > 100) { // Threshhold to avoid jitter
+                     const speed = Math.sqrt(speedSq);
+                     const maxSpeed = unit.stats.speed || 1;
+                     // Cap deformation at 30%
+                     const stretch = Math.min(0.3, (speed / maxSpeed) * 0.2);
+                     
+                     scaleX = dir * (1 + stretch); // Stretch X (Forward)
+                     scaleY = 1 - stretch;         // Squash Y (Vertical)
+                } else {
+                     scaleX = dir;
+                }
             } else {
-                 scaleX = dir;
+                scaleX = dir;
             }
 
         } else if (mode === 'HARVEST_VIEW') {
@@ -306,12 +314,15 @@ export class WorldRenderer {
         }
 
         view.scale.set(scaleX, scaleY);
-        view.rotation = 0; // Reset rotation unless specific logic adds it
+        view.rotation = 0; 
     }
     
     public renderHpBars(activeUnits: IUnit[]) {
         this.hpBarGraphics.clear();
         for (const unit of activeUnits) {
+            // LOD: Only render HP bars if unit is active, alive, damaged, AND visibly on screen
+            // Since we don't have perfect bounds here, we check general range relative to camera or active status
+            // Assuming activeUnits are already culled by game logic to active chunks, we just check damage.
             if (!unit.active || unit.isDead || unit.stats.hp >= unit.stats.maxHp) continue;
             
             const pct = Math.max(0, unit.stats.hp / unit.stats.maxHp);
@@ -328,13 +339,6 @@ export class WorldRenderer {
     }
 
     public updateParticles(dt: number) {
-        // Perform manual Z-Sort for Container every 5 frames to save CPU
-        this.sortTimer += dt;
-        if (this.sortTimer > 0.08) { // ~12 fps sorting
-            this.unitLayer.children.sort((a, b) => a.y - b.y);
-            this.sortTimer = 0;
-        }
-
         let i = this.activeParticles.length;
         while (i--) {
             const p = this.activeParticles[i];

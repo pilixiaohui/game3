@@ -1,4 +1,5 @@
 
+
 import { Sprite } from 'pixi.js';
 import { IUnit, UnitRuntimeStats, Faction, UnitType, GameModifiers, StatusType, GeneConfig } from '../types';
 import { UNIT_CONFIGS, LANE_Y, LANE_HEIGHT } from '../constants';
@@ -27,6 +28,7 @@ export class Unit implements IUnit {
   waveOffset: number = 0;
   frameOffset: number = 0;
   steeringForce: { x: number, y: number } = { x: 0, y: 0 };
+  velocity: { x: number, y: number } = { x: 0, y: 0 };
   view: Sprite | null = null;
   statuses: Partial<Record<StatusType, any>> = {};
   geneConfig: GeneConfig[] = [];
@@ -65,7 +67,9 @@ export class UnitPool {
     unit.state = faction === Faction.ZERG ? 'MOVE' : 'IDLE';
     unit.target = null; unit.attackCooldown = 0; unit.statuses = {}; unit.context = {}; unit.flashTimer = 0;
     unit.decayTimer = 0; unit.engagedCount = 0; unit.speedVar = 0.85 + Math.random() * 0.3; unit.waveOffset = Math.random() * 100;
-    unit.wanderTimer = 0; unit.wanderDir = 1; unit.frameOffset = Math.floor(Math.random() * 60); unit.steeringForce = {x:0, y:0};
+    unit.wanderTimer = 0; unit.wanderDir = 1; unit.frameOffset = Math.floor(Math.random() * 60); 
+    unit.steeringForce = {x:0, y:0};
+    unit.velocity = {x:0, y:0};
 
     // Calculate Stats
     let stats: UnitRuntimeStats;

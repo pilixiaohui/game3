@@ -411,7 +411,7 @@ export interface ObstacleDef {
     x: number; y: number; width: number; height: number;
     health?: number;
     maxHealth?: number;
-    chunkId?: string; // New: track which chunk this obstacle belongs to
+    chunkId?: string;
 }
 
 export interface ChunkTemplate {
@@ -419,7 +419,7 @@ export interface ChunkTemplate {
     width: number;
     obstacles: ObstacleDef[];
     spawnPoints: { x: number, y: number, type: string }[];
-    isStronghold?: boolean; // New: marks this chunk as a siege encounter
+    isStronghold?: boolean;
 }
 
 export interface HarvestNodeDef {
@@ -447,7 +447,6 @@ export interface IGameEngine {
     
     setMode(mode: 'COMBAT_VIEW' | 'HARVEST_VIEW' | 'HIVE', params?: any): void;
     
-    // Exposed for gene logic
     levelManager?: {
          getFlowVector: (x: number, y: number) => { x: number, y: number };
     };
@@ -493,6 +492,7 @@ export interface IUnit {
     waveOffset: number;
     frameOffset: number; 
     steeringForce: { x: number, y: number };
+    velocity: { x: number, y: number };
     view: any; 
     geneConfig: GeneConfig[];
     state: string;

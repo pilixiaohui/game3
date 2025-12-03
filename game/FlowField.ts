@@ -1,4 +1,5 @@
 
+
 import { ObstacleDef } from '../types';
 import { LANE_Y } from '../../constants';
 

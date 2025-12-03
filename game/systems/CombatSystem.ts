@@ -1,4 +1,5 @@
 
+
 import { IGameEngine, IUnit, Faction, StatusType, ObstacleDef } from '../../types';
 import { UnitPool, Unit } from '../Unit';
 import { SpatialHash } from '../SpatialHash';
@@ -122,33 +123,53 @@ export class CombatSystem {
             }
         }
         
+        // --- AXIS SEPARATED COLLISION (SLIDING) ---
         let nextX = u.x + velocity.x;
-        let nextY = u.y + velocity.y;
+        let nextY = u.y; // Try X move first
         
-        // Wall Collision
-        const wallHit = this.checkWallCollision(nextX, nextY, u.radius);
+        let wallHit = this.checkWallCollision(nextX, nextY, u.radius);
         if (wallHit) {
+            // Blocked on X, zero out X velocity for next step check, but keep Y momentum potential
             nextX = u.x; 
-            if (u.faction === Faction.ZERG) {
-                 u.state = 'ATTACK';
-                 u.attackCooldown -= dt;
-                 if (u.attackCooldown <= 0) {
-                     u.attackCooldown = u.stats.attackSpeed;
-                     const destroyed = this.levelManager.damageObstacle(wallHit, u.stats.damage);
-                     if (destroyed) {
-                         this.engine.events.emit('FX', { type: 'EXPLOSION', x: wallHit.x, y: LANE_Y + wallHit.y - wallHit.height/2, radius: 100, color: 0x555555 });
-                     }
-                     this.engine.events.emit('FX', { type: 'SLASH', x: wallHit.x - 20, y: u.y, targetX: wallHit.x, targetY: u.y, color: 0xff0000 });
-                 }
-            }
+            velocity.x = 0;
+            this.handleWallHit(u, wallHit, dt);
         }
 
-        // Clamp Y
+        nextY = u.y + velocity.y; // Now add Y component
+        
+        // Re-check full position with new Y
+        wallHit = this.checkWallCollision(nextX, nextY, u.radius);
+        if (wallHit) {
+             nextY = u.y; // Blocked on Y
+             velocity.y = 0;
+             this.handleWallHit(u, wallHit, dt);
+        }
+
+        // Clamp Y Map Bounds
         if (nextY < -200) nextY = -200;
         if (nextY > 200) nextY = 200;
         
         u.x = nextX;
         u.y = nextY;
+        
+        // Store velocity for Renderer (Squash & Stretch)
+        u.velocity.x = velocity.x;
+        u.velocity.y = velocity.y;
+    }
+
+    private handleWallHit(u: Unit, wall: ObstacleDef, dt: number) {
+         if (u.faction === Faction.ZERG) {
+             u.state = 'ATTACK';
+             u.attackCooldown -= dt;
+             if (u.attackCooldown <= 0) {
+                 u.attackCooldown = u.stats.attackSpeed;
+                 const destroyed = this.levelManager.damageObstacle(wall, u.stats.damage);
+                 if (destroyed) {
+                     this.engine.events.emit('FX', { type: 'EXPLOSION', x: wall.x, y: LANE_Y + wall.y - wall.height/2, radius: 100, color: 0x555555 });
+                 }
+                 this.engine.events.emit('FX', { type: 'SLASH', x: wall.x - 20, y: u.y, targetX: wall.x, targetY: u.y, color: 0xff0000 });
+             }
+        }
     }
 
     private checkWallCollision(x: number, y: number, r: number): ObstacleDef | null {

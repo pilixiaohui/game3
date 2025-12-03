@@ -1,4 +1,5 @@
 
+
 import { GeneTrait, IUnit, ElementType, IGameEngine, StatusType, Faction, UnitType } from '../types';
 import { ELEMENT_COLORS, STATUS_CONFIG, UNIT_CONFIGS } from '../constants';
 
@@ -761,9 +762,9 @@ GeneLibrary.register({
                 const dirX = (self.target.x - self.x) / dist;
                 const dirY = (self.target.y - self.y) / dist;
                 
-                // Weight: 30% direct seek, 70% flow (Flow is safer for navigation)
-                // If close, bias towards direct seek
-                const bias = Math.min(1.0, 300 / (dist + 0.1)); 
+                // IMPACT FIX: Reduce direct seek bias significantly to allow flow field (wall avoidance) to work
+                // Only bias heavily if very close (e.g. < 50px)
+                const bias = Math.min(0.6, 100 / (dist + 0.1)); 
                 const finalX = dirX * bias + flow.x * (1 - bias);
                 const finalY = dirY * bias + flow.y * (1 - bias);
 
