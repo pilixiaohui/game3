@@ -1,5 +1,5 @@
 
-import { Application, Container, Graphics, TilingSprite, Text, TextStyle, Texture, Sprite, RenderTexture, ParticleContainer, BaseTexture, Rectangle } from 'pixi.js';
+import { Application, Container, Graphics, TilingSprite, Text, TextStyle, Texture, Sprite, RenderTexture, Rectangle } from 'pixi.js';
 import { IUnit, ObstacleDef, UnitType, Faction, IFxEvent, HarvestNodeDef } from '../../types';
 import { LANE_Y, UNIT_CONFIGS, ELEMENT_COLORS } from '../../constants';
 import { SimpleEventEmitter } from '../DataManager';
@@ -10,7 +10,7 @@ export class WorldRenderer {
     
     private bgLayer: TilingSprite;
     private groundLayer: TilingSprite;
-    public unitLayer: ParticleContainer; 
+    public unitLayer: Container; 
     public terrainLayer: Container;
     public particleLayer: Container;
     public hiveLayer: Container;
@@ -84,15 +84,8 @@ export class WorldRenderer {
 
         this.hiveLayer = new Container(); this.hiveLayer.zIndex = 6;
         
-        // ParticleContainer for maximum sprite performance
-        this.unitLayer = new ParticleContainer(5000, {
-            scale: true,
-            position: true,
-            rotation: true,
-            uvs: true,
-            alpha: true,
-            tint: true
-        });
+        // Container for units (ParticleContainer removed in v8)
+        this.unitLayer = new Container();
         this.unitLayer.zIndex = 10;
         
         this.particleLayer = new Container(); this.particleLayer.zIndex = 20;
@@ -199,7 +192,7 @@ export class WorldRenderer {
         s.alpha = 0.7;
         
         // Stamp onto the render texture
-        this.app.renderer.render(s, { renderTexture: this.decalRenderTexture, clear: false });
+        this.app.renderer.render({ container: s, target: this.decalRenderTexture, clear: false });
     }
 
     private handleFxEvent(e: IFxEvent) {
@@ -272,7 +265,7 @@ export class WorldRenderer {
         const view = unit.view as Sprite;
 
         if (unit.isDead || !unit.active) {
-             view.alpha = 0; // Hide it, effectively culling it from rendering in ParticleContainer
+             view.alpha = 0; // Hide it, effectively culling it from rendering in Container
              return;
         }
 
@@ -335,7 +328,7 @@ export class WorldRenderer {
     }
 
     public updateParticles(dt: number) {
-        // Perform manual Z-Sort for ParticleContainer every 5 frames to save CPU
+        // Perform manual Z-Sort for Container every 5 frames to save CPU
         this.sortTimer += dt;
         if (this.sortTimer > 0.08) { // ~12 fps sorting
             this.unitLayer.children.sort((a, b) => a.y - b.y);
