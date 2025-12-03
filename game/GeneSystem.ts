@@ -471,6 +471,48 @@ GeneLibrary.register({
     }
 });
 
+GeneLibrary.register({
+    id: 'GENE_SUPPORT',
+    name: 'Medical Support',
+    onTick: (self, dt, engine, params) => {
+        if (self.attackCooldown > 0) {
+            self.attackCooldown -= dt;
+            return;
+        }
+
+        const range = params.range || 200;
+        const healAmount = (params.heal || 10) * dt;
+        
+        const neighbors = engine._sharedQueryBuffer;
+        const count = engine.spatialHash.query(self.x, self.y, range, neighbors);
+        
+        let target: IUnit | null = null;
+        let lowestHpPct = 1.0;
+
+        for(let i=0; i<count; i++) {
+            const u = neighbors[i];
+            if (u.faction === self.faction && u !== self && !u.isDead && u.stats.hp < u.stats.maxHp) {
+                const pct = u.stats.hp / u.stats.maxHp;
+                if (pct < lowestHpPct) {
+                    lowestHpPct = pct;
+                    target = u;
+                }
+            }
+        }
+
+        if (target) {
+            target.stats.hp = Math.min(target.stats.maxHp, target.stats.hp + healAmount);
+            
+            // Visual
+            if (Math.random() < 0.2) {
+                 engine.events.emit('FX', { type: 'HEAL', x: target.x, y: target.y });
+                 // Green Beam
+                 engine.events.emit('FX', { type: 'PROJECTILE', x: self.x, y: self.y - 10, x2: target.x, y2: target.y - 10, color: 0x00ff00 }); 
+            }
+        }
+    }
+});
+
 // ==========================================
 // E. 召唤与特殊类 (Special)
 // ==========================================

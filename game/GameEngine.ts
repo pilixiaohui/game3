@@ -181,48 +181,5 @@ export class GameEngine implements IGameEngine {
   public processDamagePipeline(source: IUnit, target: IUnit) { this.combatSystem.processDamagePipeline(source, target); }
   public performAttack(source: IUnit, target: IUnit) { this.combatSystem.performAttack(source, target); }
 
-  public createExplosion(x: number, y: number, radius: number, color?: number) {
-      this.events.emit('FX', { type: 'EXPLOSION', x, y, radius, color });
-  }
-
-  public createFlash(x: number, y: number, color: number) {
-      this.events.emit('FX', { type: 'FLASH', x, y, color });
-  }
-
-  public createProjectile(x1: number, y1: number, x2: number, y2: number, color: number) {
-      this.events.emit('FX', { type: 'PROJECTILE', x: x1, y: y1, x2, y2, color });
-  }
-
-  public createFloatingText(x: number, y: number, text: string, color: number, fontSize?: number) {
-      this.events.emit('FX', { type: 'TEXT', x, y, text, color, fontSize });
-  }
-
-  public createDamagePop(x: number, y: number, value: number, element: string) {
-      const color = ELEMENT_COLORS[element as ElementType] || 0xffffff;
-      this.events.emit('FX', { 
-          type: 'DAMAGE_POP', 
-          x, y: y - 10, 
-          text: Math.floor(value).toString(), 
-          color, 
-          fontSize: 14 
-      });
-  }
-  
-  public createSlash(x: number, y: number, targetX: number, targetY: number, color: number) {
-      this.events.emit('FX', { type: 'SLASH', x, y, targetX, targetY, color });
-  }
-
-  public createShockwave(x: number, y: number, radius: number, color: number) {
-      this.events.emit('FX', { type: 'SHOCKWAVE', x, y, radius, color });
-  }
-
-  public createParticles(x: number, y: number, color: number, count: number) {
-      this.events.emit('FX', { type: 'PARTICLES', x, y, color, count });
-  }
-
-  public createHealEffect(x: number, y: number) {
-      this.events.emit('FX', { type: 'HEAL', x, y });
-  }
-
   public destroy() { this.renderer?.destroy(); }
 }

@@ -81,9 +81,39 @@ export const TERRAIN_CHUNKS: Record<string, ChunkTemplate[]> = {
                 { type: 'WALL', x: 900, y: 0, width: 20, height: 300, health: 5000, maxHealth: 5000 },
             ],
             spawnPoints: [
-                { x: 400, y: 250, type: 'HUMAN_SHOTGUN' }, // Fallback to Militia if SHOTGUN not def
+                { x: 400, y: 250, type: 'HUMAN_MARINE' },
                 { x: 700, y: 50, type: 'HUMAN_GRENADIER' },
                 { x: 1000, y: 250, type: 'HUMAN_TURRET_MG' }
+            ]
+        },
+        // NEW CHUNKS
+        {
+            id: 'the_bridge',
+            width: 1200,
+            obstacles: [
+                // Top Water (Simulated by Rock/Wall for now, but visually "Void")
+                { type: 'WATER', x: 600, y: -150, width: 1200, height: 200 },
+                // Bottom Water
+                { type: 'WATER', x: 600, y: 350, width: 1200, height: 200 }
+            ],
+            spawnPoints: [
+                { x: 900, y: 100, type: 'HUMAN_RIOT' },
+                { x: 1000, y: 100, type: 'HUMAN_FLAME_TANK' }
+            ]
+        },
+        {
+            id: 'bunker_hill',
+            width: 1200,
+            obstacles: [
+                { type: 'WALL', x: 400, y: 0, width: 200, height: 20, health: 5000 },
+                { type: 'WALL', x: 400, y: 200, width: 200, height: 20, health: 5000 },
+                { type: 'ROCK', x: 800, y: 100, width: 100, height: 100 }
+            ],
+            spawnPoints: [
+                { x: 400, y: 50, type: 'HUMAN_BUNKER' },
+                { x: 400, y: 150, type: 'HUMAN_BUNKER' },
+                { x: 800, y: 0, type: 'HUMAN_TURRET_MISSILE' },
+                { x: 800, y: 200, type: 'HUMAN_TURRET_CANNON' }
             ]
         }
     ]

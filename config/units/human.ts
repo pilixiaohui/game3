@@ -66,9 +66,9 @@ export const HUMAN_UNIT_CONFIGS: Partial<Record<UnitType, UnitConfig>> = {
       elementConfig: { type: 'PHYSICAL' },
       visual: { shapes: [{ type: 'RECT', widthPct: 0.8, heightPct: 1, color: 0xffffff }, { type: 'RECT', widthPct: 0.6, heightPct: 0.2, color: 0xff0000 }, { type: 'RECT', widthPct: 0.2, heightPct: 0.6, color: 0xff0000 }] }, // 红十字
       genes: [
-          { id: 'GENE_ACQUIRE_TARGET' }, // Follow logic handled by BOIDS mostly
+          { id: 'GENE_ACQUIRE_TARGET' }, 
           { id: 'GENE_COMBAT_MOVEMENT' },
-          { id: 'GENE_COMMAND_AURA', params: { range: 200 } }, // 复用光环作为治疗/Buff
+          { id: 'GENE_SUPPORT', params: { range: 200, heal: 20 } },
           { id: 'GENE_BOIDS', params: { separationRadius: 25 } }
       ]
   },
