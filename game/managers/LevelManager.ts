@@ -7,6 +7,7 @@ import { STAGE_WIDTH, LANE_Y } from '../../constants';
 
 export class LevelManager {
     public activeRegionId: number = 0;
+    public loadedRegionId: number = -1; // Track currently loaded region
     public currentStageIndex: number = 0;
     public cameraX: number = 0;
     public activeObstacles: ObstacleDef[] = [];
@@ -20,10 +21,26 @@ export class LevelManager {
     }
 
     public loadRegion(regionId: number) {
+        // Persistence Check: If we are just switching back to view the battle, don't reset everything.
+        if (this.loadedRegionId === regionId) {
+             // Just ensure activeRegionId is synced, but don't regenerate
+             this.activeRegionId = regionId;
+             return;
+        }
+
         this.activeRegionId = regionId;
+        this.loadedRegionId = regionId;
+        
         const saved = DataManager.instance.state.world.regions[regionId];
         this.currentStageIndex = Math.floor(saved ? saved.devourProgress : 0);
         this.cameraX = this.currentStageIndex * STAGE_WIDTH;
+        
+        // Cleanup old enemies before generating new ones
+        const activeUnits = this.unitPool.getActiveUnits();
+        activeUnits.forEach(u => {
+            if (u.faction === Faction.HUMAN) this.unitPool.recycle(u);
+        });
+
         this.generateTerrain(this.currentStageIndex);
     }
 

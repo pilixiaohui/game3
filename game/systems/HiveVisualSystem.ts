@@ -1,5 +1,5 @@
 
-import { Graphics } from 'pixi.js';
+import { Graphics, Container } from 'pixi.js';
 import { UnitPool, Unit } from '../Unit';
 import { WorldRenderer } from '../renderers/WorldRenderer';
 import { DataManager } from '../DataManager';
@@ -9,8 +9,8 @@ import { UNIT_CONFIGS } from '../../constants';
 export class HiveVisualSystem {
     private unitPool: UnitPool;
     private renderer: WorldRenderer;
-    private hiveGraphics: Graphics | null = null;
-    private eggPositions: Record<UnitType, {x: number, y: number, scale: number}> = {} as any;
+    private rootContainer: Container | null = null;
+    private eggNodes: Record<UnitType, Container> = {} as any;
     private lastStockpileCounts: Record<UnitType, number> = {} as any;
 
     constructor(unitPool: UnitPool, renderer: WorldRenderer) {
@@ -19,22 +19,57 @@ export class HiveVisualSystem {
     }
 
     public init() {
-        this.hiveGraphics = new Graphics();
-        this.renderer.hiveLayer.addChild(this.hiveGraphics);
-        this.generateHiveVisuals();
+        this.rootContainer = new Container();
+        this.renderer.hiveLayer.addChild(this.rootContainer);
+        
+        // Draw Static Central Pillar Once
+        const pillar = new Graphics();
+        pillar.beginFill(0x1a0505); 
+        pillar.lineStyle(4, 0x441111);
+        pillar.drawRect(-40, -600, 80, 1200);
+        pillar.endFill();
+        this.rootContainer.addChild(pillar);
+
+        this.createEggNodes();
     }
 
     public cleanup() {
-        if (this.hiveGraphics) {
-            this.hiveGraphics.clear();
-            this.hiveGraphics.destroy();
-            this.hiveGraphics = null;
+        if (this.rootContainer) {
+            this.rootContainer.destroy({ children: true });
+            this.rootContainer = null;
+            this.eggNodes = {} as any;
         }
     }
 
     public update(dt: number) {
-        if (!this.hiveGraphics) return;
-        this.updateHiveGraphics();
+        if (!this.rootContainer) return;
+
+        const time = Date.now() / 1000;
+        const unlocked = DataManager.instance.state.hive.unlockedUnits;
+        const currentStockpile = DataManager.instance.state.hive.unitStockpile;
+
+        // Update Dynamic Eggs
+        for (const type of Object.keys(this.eggNodes) as UnitType[]) {
+            const node = this.eggNodes[type];
+            const data = unlocked[type];
+            if (!data) continue;
+
+            // Pulse Animation
+            if (data.isProducing) {
+                const scale = 1.0 + Math.sin(time * 10) * 0.05;
+                node.scale.set(scale);
+                // Update tint or connecting line color if possible (simple scale for now)
+            } else {
+                node.scale.set(1.0);
+            }
+
+            // Spawn Visual Unit on Stockpile Increase
+            const newCount = currentStockpile[type] || 0;
+            if (newCount > (this.lastStockpileCounts[type] || 0)) {
+                this.spawnVisualUnit(type, { x: node.x, y: node.y });
+            }
+            this.lastStockpileCounts[type] = newCount;
+        }
 
         // Animate Larva/Units
         const visualUnits = this.unitPool.getActiveUnits();
@@ -47,65 +82,53 @@ export class HiveVisualSystem {
         }
     }
 
-    private generateHiveVisuals() {
+    private createEggNodes() {
         const unlocked = DataManager.instance.state.hive.unlockedUnits;
         const types = Object.keys(unlocked) as UnitType[];
         const count = types.length;
+
         types.forEach((t, i) => {
             const side = i % 2 === 0 ? -1 : 1;
             const row = Math.floor(i / 2);
             const x = side * 150;
             const y = (row - count/4) * 120;
-            this.eggPositions[t] = { x, y, scale: 1.0 };
+            
+            const nodeContainer = new Container();
+            nodeContainer.position.set(x, y);
+
+            // Draw Connection Line (Static relative to egg)
+            const line = new Graphics();
+            line.lineStyle(3, 0x331111);
+            // Draw from egg center (0,0 in local space) towards pillar (inverse of egg pos)
+            // Pillar is at 0,0 world, so local vector to pillar is (-x, -y)
+            // We want a curve.
+            line.moveTo(0, 0);
+            line.quadraticCurveTo(-x/2, 20, -x, -y + (Math.random()*20-10)); // Curve towards center
+            nodeContainer.addChild(line);
+            // Move line to back
+            nodeContainer.setChildIndex(line, 0);
+
+            // Draw Egg
+            const egg = new Graphics();
+            const color = UNIT_CONFIGS[t]?.baseStats.color || 0xffffff;
+            
+            // Outer Shell
+            egg.lineStyle(2, 0x555555);
+            egg.beginFill(0x111111); 
+            egg.drawCircle(0, 0, 30); 
+            egg.endFill();
+            
+            // Inner Mass
+            egg.beginFill(color, 0.5); 
+            egg.drawCircle(0, 0, 20); 
+            egg.endFill();
+            
+            nodeContainer.addChild(egg);
+            this.rootContainer!.addChild(nodeContainer);
+            this.eggNodes[t] = nodeContainer;
+            
             this.lastStockpileCounts[t] = DataManager.instance.state.hive.unitStockpile[t] || 0;
         });
-    }
-
-    private updateHiveGraphics() {
-        if (!this.hiveGraphics) return;
-        const g = this.hiveGraphics;
-        g.clear();
-        const time = Date.now() / 1000;
-
-        // Central Pillar
-        g.beginFill(0x1a0505); g.lineStyle(4, 0x441111);
-        g.drawRect(-40, -600, 80, 1200);
-        g.endFill();
-        
-        const unlocked = DataManager.instance.state.hive.unlockedUnits;
-        const currentStockpile = DataManager.instance.state.hive.unitStockpile;
-        
-        for (const type of Object.keys(this.eggPositions) as UnitType[]) {
-            const pos = this.eggPositions[type];
-            const data = unlocked[type];
-            if (!data) continue;
-            
-            // Pulse if producing
-            if (data.isProducing) pos.scale = 1.0 + Math.sin(time * 10) * 0.05; else pos.scale = 1.0;
-            
-            // Draw Connection
-            g.lineStyle(3, 0x331111); 
-            g.moveTo(0, pos.y); 
-            g.quadraticCurveTo(pos.x/2, pos.y + 20, pos.x, pos.y);
-            
-            // Draw Egg/Pod
-            const color = UNIT_CONFIGS[type]?.baseStats.color || 0xffffff;
-            g.lineStyle(2, data.isProducing ? 0x00ff00 : 0x555555);
-            g.beginFill(0x111111); 
-            g.drawCircle(pos.x, pos.y, 30 * pos.scale); 
-            g.endFill();
-            
-            g.beginFill(color, data.isProducing ? 0.8 : 0.3); 
-            g.drawCircle(pos.x, pos.y, 20 * pos.scale); 
-            g.endFill();
-            
-            // Spawn Visual Unit on Stockpile Increase
-            const newCount = currentStockpile[type] || 0;
-            if (newCount > (this.lastStockpileCounts[type] || 0)) {
-                this.spawnVisualUnit(type, pos);
-            }
-            this.lastStockpileCounts[type] = newCount;
-        }
     }
 
     private spawnVisualUnit(type: UnitType, pos: {x: number, y: number}) {
@@ -121,11 +144,9 @@ export class HiveVisualSystem {
     }
 
     private updateUnitVisualLogic(u: Unit, dt: number) {
-        const velocity = { x: 0, y: 0 };
         // Simple logic for visual movement
         if (u.context.isHiveVisual) {
              const dx = 0 - u.x;
-             const dy = 0 - u.y; // Move to center
              // Very simple linear move
              if (Math.abs(dx) > 5) u.x += (dx > 0 ? 1 : -1) * u.stats.speed * dt;
         }

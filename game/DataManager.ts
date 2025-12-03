@@ -2,6 +2,7 @@
 import { GameSaveData, UnitType, UnitRuntimeStats, Resources, GameModifiers, BioPluginConfig, PluginInstance, ElementType } from '../types';
 import { INITIAL_GAME_STATE, UNIT_CONFIGS, UNIT_UPGRADE_COST_BASE, RECYCLE_REFUND_RATE, METABOLISM_FACILITIES, MAX_RESOURCES_BASE, BIO_PLUGINS, CAP_UPGRADE_BASE, EFFICIENCY_UPGRADE_BASE, QUEEN_UPGRADE_BASE, INITIAL_LARVA_CAP, CLICK_CONFIG, INITIAL_REGIONS_CONFIG } from '../constants';
 import { MetabolismSystem } from './systems/MetabolismSystem';
+import { ProductionSystem } from './systems/ProductionSystem';
 
 export type Listener = (data: any) => void;
 
@@ -43,11 +44,13 @@ export class DataManager {
     };
 
     private metabolismSystem: MetabolismSystem;
+    private productionSystem: ProductionSystem;
 
     private constructor() {
         this.events = new SimpleEventEmitter();
         this.state = JSON.parse(JSON.stringify(INITIAL_GAME_STATE));
         this.metabolismSystem = new MetabolismSystem();
+        this.productionSystem = new ProductionSystem();
         this.loadGame();
         
         // STRICT: No internal game loop (setInterval).
@@ -65,12 +68,10 @@ export class DataManager {
     // Called externally by the Authority GameEngine (UndergroundView)
     public updateTick(dt: number) {
         const safeDt = Math.min(dt, 1.0);
+        
+        // System Updates
         this.metabolismSystem.update(safeDt * this.modifiers.resourceRateMultiplier, this); 
-        this.updateQueen(safeDt);      
-        const queenStats = this.getQueenStats();
-        const queenCount = this.state.hive.unitStockpile[UnitType.QUEEN] || 0;
-        this.rates.larva = (queenCount > 0) ? (queenCount * queenStats.amount) / queenStats.interval : 0;
-        this.updateHatchery(safeDt);
+        this.productionSystem.update(safeDt, this);
     }
 
     public saveGame() {
@@ -169,68 +170,8 @@ export class DataManager {
 
     public getRecycleRate(): number { return 0.5; }
     
-    private updateQueen(dt: number) {
-        const prod = this.state.hive.production;
-        const queenCount = this.state.hive.unitStockpile[UnitType.QUEEN] || 0;
-        if (queenCount < 1) return;
-        
-        // Prestige Bonus: Larva Fission
-        const fissionLevel = this.state.player.mutationUpgrades?.larvaFission || 0;
-        const intervalMult = 1 / (1 + fissionLevel); // +100% speed = 0.5x interval
-
-        const interval = (5.0 * Math.pow(0.9, prod.queenIntervalLevel - 1)) * intervalMult;
-        prod.queenTimer = (prod.queenTimer || 0) + dt;
-        if (prod.queenTimer >= interval) {
-            prod.queenTimer = 0;
-            const amount = 1 * prod.queenAmountLevel * queenCount;
-            this.modifyResource('larva', amount);
-        }
-    }
-
-    private updateHatchery(dt: number) {
-        const units = this.state.hive.unlockedUnits;
-        const stockpile = this.state.hive.unitStockpile;
-        const resources = this.state.resources;
-
-        let totalBioDrain = 0;
-        let totalDnaDrain = 0;
-        let totalLarvaDrain = 0;
-
-        Object.values(units).forEach(unit => {
-            if (!unit.isProducing) return;
-            if ((stockpile[unit.id] || 0) >= unit.cap) return;
-
-            const config = UNIT_CONFIGS[unit.id];
-            const discount = Math.pow(0.95, unit.efficiencyLevel - 1);
-            const bioCost = config.baseCost.biomass * discount;
-            const dnaCost = config.baseCost.dna * discount;
-            const larvaCost = config.baseCost.larva;
-            const timeCost = config.baseCost.time * discount;
-
-            if (timeCost > 0) {
-                totalBioDrain += bioCost / timeCost;
-                totalDnaDrain += dnaCost / timeCost;
-                totalLarvaDrain += larvaCost / timeCost;
-            }
-
-            if (resources.biomass >= bioCost && resources.dna >= dnaCost && resources.larva >= larvaCost) {
-                unit.productionProgress += dt;
-                if (unit.productionProgress >= timeCost) {
-                    this.modifyResource('biomass', -bioCost);
-                    this.modifyResource('dna', -dnaCost);
-                    this.modifyResource('larva', -larvaCost);
-                    stockpile[unit.id] = (stockpile[unit.id] || 0) + 1;
-                    unit.productionProgress = 0;
-                    this.events.emit('STOCKPILE_CHANGED', stockpile);
-                }
-            }
-        });
-
-        this.rates.biomass -= totalBioDrain;
-        this.rates.dna -= totalDnaDrain;
-        this.rates.larva -= totalLarvaDrain;
-    }
-
+    // Logic moved to ProductionSystem
+    
     public getClickValue(): number {
         return CLICK_CONFIG.BASE + (this.rates.biomass * CLICK_CONFIG.SCALING);
     }

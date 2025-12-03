@@ -300,9 +300,11 @@ export class WorldRenderer {
         this.harvestNodeGraphics = [];
         
         if (nodes.length > 0) {
+             // Hive Entrance Visualization in Harvest Mode
             const hive = new Graphics();
             hive.beginFill(0x550055);
-            hive.drawCircle(0, 0, 40);
+            // Draw a spiky entrance
+            hive.drawPolygon([-30, 0, -20, -40, 0, -20, 20, -40, 30, 0, 0, 10]);
             hive.lineStyle(2, 0xaa00aa);
             hive.drawCircle(0, 0, 45 + Math.sin(Date.now()/500)*5);
             hive.endFill();
@@ -310,15 +312,40 @@ export class WorldRenderer {
             this.harvestNodeGraphics.push(hive);
         }
 
-        nodes.forEach(node => {
+        nodes.forEach((node, idx) => {
             const multiplier = node.richness;
             const g = new Graphics(); 
-            const alpha = Math.min(1.0, 0.4 * multiplier);
-            g.beginFill(0x00ff00, alpha); 
-            g.drawCircle(0, 0, 15 + (multiplier * 2)); 
-            g.beginFill(0x004400, 0.8);
-            g.drawCircle(0, 0, 5);
-            g.endFill(); 
+            
+            // Draw Crystal Cluster
+            const color = 0x00ff00;
+            const alpha = 0.6;
+            
+            g.beginFill(color, alpha);
+            g.lineStyle(1, 0xccffcc, 0.8);
+            
+            // Procedural jagged shape
+            const shards = 3 + Math.floor(Math.random() * 3);
+            for(let i=0; i<shards; i++) {
+                const h = 20 + Math.random() * 20 * multiplier;
+                const w = 10 + Math.random() * 10;
+                const angle = (Math.PI * 2 * i) / shards;
+                const cx = Math.cos(angle) * 5;
+                const cy = Math.sin(angle) * 5;
+                
+                // Draw a crystal shard
+                g.drawPolygon([
+                    cx - w/2, cy, 
+                    cx, cy - h, 
+                    cx + w/2, cy
+                ]);
+            }
+            g.endFill();
+            
+            // Glow
+            g.beginFill(color, 0.2);
+            g.drawCircle(0, -10, 30 * multiplier);
+            g.endFill();
+
             g.position.set(node.x, node.y);
             
             this.terrainLayer.addChild(g);
