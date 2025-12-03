@@ -735,22 +735,42 @@ GeneLibrary.register({
         const speedMult = self.statuses['SLOWED'] ? 0.5 : 1.0;
         const moveMult = params.multiplier || 1.0;
 
+        // Flow Field Integration
+        // Use the LevelManager's flow field (assumed to be accessible via engine if we typed it stronger, 
+        // but for now we trust LevelManager is available in context or we act blindly if not)
+        // Since GeneSystem takes `engine`, we need to cast it or assume structure.
+        // In GameEngine.ts, LevelManager is a property.
+        
+        // @ts-ignore
+        const lm = engine['levelManager'];
+        const flow = lm ? lm.getFlowVector(self.x, self.y) : { x: 1, y: 0 };
+        
         if (self.target && !self.target.isDead) {
             const distSq = (self.target.x - self.x)**2 + (self.target.y - self.y)**2;
             const dist = Math.sqrt(distSq);
             if (dist > self.stats.range * 0.9) {
+                // Blend Flow Field with Direct Seeking
                 const dirX = (self.target.x - self.x) / dist;
                 const dirY = (self.target.y - self.y) / dist;
-                velocity.x += dirX * self.stats.speed * self.speedVar * speedMult * moveMult * dt;
-                velocity.y += dirY * self.stats.speed * self.speedVar * speedMult * moveMult * dt;
+                
+                // Weight: 70% direct seek, 30% flow
+                const finalX = dirX * 0.7 + flow.x * 0.3;
+                const finalY = dirY * 0.7 + flow.y * 0.3;
+
+                velocity.x += finalX * self.stats.speed * self.speedVar * speedMult * moveMult * dt;
+                velocity.y += finalY * self.stats.speed * self.speedVar * speedMult * moveMult * dt;
                 isMoving = true;
             }
         } 
         else {
             const moveDir = self.faction === Faction.ZERG ? 1 : -1;
+            // When just marching, follow flow field heavily
             if (self.stats.speed > 0) {
-                velocity.x += moveDir * self.stats.speed * self.speedVar * speedMult * moveMult * dt;
-                velocity.y += Math.sin(Date.now()/1000 + self.waveOffset) * 20 * dt; 
+                const finalX = moveDir * (Math.abs(flow.x) * 0.8 + 0.2); // Maintain forward bias
+                const finalY = flow.y;
+                
+                velocity.x += finalX * self.stats.speed * self.speedVar * speedMult * moveMult * dt;
+                velocity.y += finalY * self.stats.speed * self.speedVar * speedMult * moveMult * dt;
                 isMoving = true;
             }
         }

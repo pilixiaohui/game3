@@ -4,6 +4,7 @@ import { UnitPool } from '../Unit';
 import { ObstacleDef, RegionData, Faction, UnitType } from '../../types';
 import { TERRAIN_CHUNKS } from '../../config/terrain';
 import { STAGE_WIDTH, LANE_Y } from '../../constants';
+import { FlowField } from '../FlowField';
 
 export class LevelManager {
     public activeRegionId: number = 0;
@@ -15,10 +16,12 @@ export class LevelManager {
     private unitPool: UnitPool;
     private events: SimpleEventEmitter;
     private lastGeneratedStage: number = -1;
+    public flowField: FlowField;
 
     constructor(unitPool: UnitPool, events: SimpleEventEmitter) {
         this.unitPool = unitPool;
         this.events = events;
+        this.flowField = new FlowField();
     }
 
     public loadRegion(regionId: number) {
@@ -49,6 +52,8 @@ export class LevelManager {
         // Pre-generate current and next stage to ensure visibility
         this.generateChunk(this.currentStageIndex);
         this.generateChunk(this.currentStageIndex + 1);
+        
+        this.updateFlowField();
     }
 
     public update(dt: number, activeUnits: any[]) {
@@ -84,6 +89,7 @@ export class LevelManager {
         // We typically generate one step ahead of the last generated one to keep continuity.
         if (lookAheadStage > this.lastGeneratedStage) {
             this.generateChunk(this.lastGeneratedStage + 1);
+            this.updateFlowField();
         }
     }
 
@@ -132,8 +138,19 @@ export class LevelManager {
         if (obs.health <= 0) {
             this.activeObstacles = this.activeObstacles.filter(o => o !== obs);
             this.events.emit('TERRAIN_UPDATE', this.activeObstacles);
+            this.updateFlowField();
             return true;
         }
         return false;
+    }
+
+    private updateFlowField() {
+        const startX = Math.max(0, this.cameraX - 500);
+        const endX = this.cameraX + 2000;
+        this.flowField.update(this.activeObstacles, startX, endX);
+    }
+    
+    public getFlowVector(x: number, y: number) {
+        return this.flowField.getVector(x, y);
     }
 }

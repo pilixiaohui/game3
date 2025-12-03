@@ -1,5 +1,5 @@
 
-import { Application, Container, Graphics, TilingSprite, Text, TextStyle } from 'pixi.js';
+import { Application, Container, Graphics, TilingSprite, Text, TextStyle, Texture, Sprite, RenderTexture } from 'pixi.js';
 import { IUnit, ObstacleDef, UnitType, Faction, IFxEvent, HarvestNodeDef } from '../../types';
 import { LANE_Y, UNIT_CONFIGS, ELEMENT_COLORS } from '../../constants';
 import { SimpleEventEmitter } from '../DataManager';
@@ -14,20 +14,27 @@ export class WorldRenderer {
     public terrainLayer: Container;
     public particleLayer: Container;
     public hiveLayer: Container;
+    public uiLayer: Container;
     
     private obstacleGraphics: Graphics[] = [];
     private harvestNodeGraphics: Graphics[] = [];
+    private textureCache: Map<UnitType, Texture> = new Map();
+    private decalTexture: RenderTexture | null = null;
+    private decalContainer: Container;
+    private hpBarGraphics: Graphics;
 
     constructor(element: HTMLElement, events: SimpleEventEmitter) {
         this.app = new Application({ 
             resizeTo: element, 
             backgroundColor: 0x0a0a0a, 
-            antialias: true, 
+            antialias: false, // Turn off antialias for performance
             resolution: window.devicePixelRatio || 1, 
             autoDensity: true 
         });
         // @ts-ignore
         element.appendChild(this.app.view);
+
+        this.generateUnitTextures();
 
         // Layers
         const bgGfx = new Graphics();
@@ -55,21 +62,98 @@ export class WorldRenderer {
         this.app.stage.addChild(this.world);
 
         this.terrainLayer = new Container(); this.terrainLayer.zIndex = 5;
+        this.decalContainer = new Container(); this.terrainLayer.addChild(this.decalContainer); // Decals sit on terrain
+        
         this.hiveLayer = new Container(); this.hiveLayer.zIndex = 6;
         this.unitLayer = new Container(); this.unitLayer.zIndex = 10; this.unitLayer.sortableChildren = true;
         this.particleLayer = new Container(); this.particleLayer.zIndex = 20;
+        this.uiLayer = new Container(); this.uiLayer.zIndex = 30;
 
         this.world.addChild(this.terrainLayer);
         this.world.addChild(this.hiveLayer);
         this.world.addChild(this.unitLayer);
         this.world.addChild(this.particleLayer);
+        this.world.addChild(this.uiLayer);
+        
+        this.hpBarGraphics = new Graphics();
+        this.uiLayer.addChild(this.hpBarGraphics);
 
         // Listen for FX Events
         events.on('FX', this.handleFxEvent.bind(this));
         
-        // Decoupled terrain updates via event bus
         events.on('TERRAIN_UPDATE', (obstacles: ObstacleDef[]) => this.drawTerrain(obstacles));
         events.on('HARVEST_NODES_UPDATED', (nodes: HarvestNodeDef[]) => this.drawHarvestNodes(nodes));
+    }
+
+    private generateUnitTextures() {
+        // Texture Factory Logic
+        Object.values(UnitType).forEach(type => {
+            const unitType = type as UnitType;
+            const config = UNIT_CONFIGS[unitType];
+            if (!config) return;
+
+            const g = new Graphics();
+            const width = config.baseStats.width;
+            const height = config.baseStats.height;
+            const color = config.baseStats.color;
+            const visual = config.visual;
+
+            // Shadow
+            g.beginFill(0x000000, 0.4);
+            const sScale = visual?.shadowScale || 1.0;
+            g.drawEllipse(0, 0, (width / 1.8) * sScale, (width / 4) * sScale);
+            g.endFill();
+
+            if (visual && visual.shapes) {
+                for (const shape of visual.shapes) {
+                    const shapeColor = shape.color !== undefined ? shape.color : color;
+                    g.beginFill(shapeColor);
+                    const w = width * (shape.widthPct ?? 1.0);
+                    const h = height * (shape.heightPct ?? 1.0);
+                    const cx = width * (shape.xOffPct ?? 0);
+                    const cy = -height/2 + (height * (shape.yOffPct ?? 0)); // Adjust cy relative to center for Sprite anchor 0.5
+
+                    if (shape.type === 'ROUNDED_RECT') {
+                        g.drawRoundedRect(cx - w/2, cy - h/2, w, h, shape.cornerRadius || 4);
+                    } else if (shape.type === 'RECT') {
+                        g.drawRect(cx - w/2, cy - h/2, w, h);
+                    } else if (shape.type === 'CIRCLE') {
+                        const r = shape.radiusPct ? width * shape.radiusPct : w/2;
+                        g.drawCircle(cx, cy, r);
+                    }
+                    g.endFill();
+                }
+            } else {
+                g.beginFill(color);
+                g.drawRect(-width/2, -height, width, height);
+                g.endFill();
+            }
+            
+            // Eye
+            g.beginFill(0xff00ff, 0.9);
+            g.drawCircle(width * 0.2, -height/2, 2);
+            g.endFill();
+
+            const texture = this.app.renderer.generateTexture(g);
+            this.textureCache.set(unitType, texture);
+        });
+    }
+
+    public assignTexture(unit: IUnit) {
+        if (!unit.view) return;
+        const texture = this.textureCache.get(unit.type);
+        if (texture) {
+            (unit.view as Sprite).texture = texture;
+            (unit.view as Sprite).anchor.set(0.5, 1.0); // Anchor at bottom center
+        }
+    }
+
+    // Renamed from drawUnit to initUnitView to clarify role
+    public initUnitView(unit: IUnit) {
+        const sprite = new Sprite();
+        // Texture assignment happens in spawn via assignTexture
+        unit.view = sprite;
+        this.unitLayer.addChild(sprite);
     }
 
     private handleFxEvent(e: IFxEvent) {
@@ -136,138 +220,86 @@ export class WorldRenderer {
         this.bgLayer.tilePosition.x = -this.world.pivot.x * 0.1;
     }
 
-    public drawUnit(unit: IUnit) {
-        // @ts-ignore
-        if (!unit.view) return;
-        // @ts-ignore
-        const view = unit.view as Graphics;
-        
-        view.clear();
-        const width = unit.stats.width;
-        const height = unit.stats.height;
-        const color = unit.stats.color;
-
-        const config = UNIT_CONFIGS[unit.type];
-        const visual = config.visual;
-
-        // Shadow
-        view.beginFill(0x000000, 0.4);
-        const sScale = visual?.shadowScale || 1.0;
-        view.drawEllipse(0, 0, (width / 1.8) * sScale, (width / 4) * sScale);
-        view.endFill();
-        
-        // Shapes
-        if (visual && visual.shapes) {
-            for (const shape of visual.shapes) {
-                const shapeColor = shape.color !== undefined ? shape.color : color;
-                view.beginFill(shapeColor);
-                const w = width * (shape.widthPct ?? 1.0);
-                const h = height * (shape.heightPct ?? 1.0);
-                const cx = width * (shape.xOffPct ?? 0);
-                const cy = -height + (height * (shape.yOffPct ?? 0));
-
-                if (shape.type === 'ROUNDED_RECT') {
-                    view.drawRoundedRect(cx - w/2, cy, w, h, shape.cornerRadius || 4);
-                } else if (shape.type === 'RECT') {
-                    view.drawRect(cx - w/2, cy, w, h);
-                } else if (shape.type === 'CIRCLE') {
-                    const r = shape.radiusPct ? width * shape.radiusPct : w/2;
-                    view.drawCircle(cx, cy, r);
-                }
-                view.endFill();
-            }
-        } else {
-            view.beginFill(color);
-            view.drawRect(-width/2, -height, width, height);
-            view.endFill();
-        }
-        
-        // Eye
-        view.beginFill(0xff00ff, 0.9);
-        view.drawCircle(width * 0.2, -height + 8, 2);
-        view.endFill();
-
-        // Carry Bag (for Harvesters)
-        // @ts-ignore
-        if (unit.context.carryAmount > 0) {
-             view.beginFill(0x00ff00);
-             view.drawCircle(0, -height/2, 5);
-             view.endFill();
-        }
-    }
-
     public updateUnitVisuals(unit: IUnit, mode: string) {
         // @ts-ignore
         if (!unit.view) return;
-        // @ts-ignore
-        const view = unit.view as Graphics;
-        // @ts-ignore
-        const hpBar = unit.hpBar as Graphics;
+        const view = unit.view as Sprite;
 
         view.position.set(unit.x, unit.y);
-        view.zIndex = unit.y;
+        view.zIndex = unit.y; // Y-sorting
         
-        // HP Bar
-        hpBar.clear();
-        if (unit.stats.hp < unit.stats.maxHp && !unit.isDead) {
-            const pct = Math.max(0, unit.stats.hp / unit.stats.maxHp);
-            hpBar.beginFill(0x550000);
-            hpBar.drawRect(-10, -unit.stats.height - 8, 20, 3);
-            hpBar.beginFill(unit.faction === Faction.HUMAN ? 0xff0000 : 0x00ff00);
-            hpBar.drawRect(-10, -unit.stats.height - 8, 20 * pct, 3);
-            hpBar.endFill();
+        // Squash and Stretch Logic
+        let scaleX = 1.0;
+        let scaleY = 1.0;
+        
+        // Face Direction
+        if (mode === 'COMBAT_VIEW') {
+            // @ts-ignore
+            const vx = unit.lastVelocityX || 0; // Assume we might track this, or derive
+            const dir = (unit.faction === Faction.ZERG) ? 1 : -1;
+            scaleX = dir;
+        } else if (mode === 'HARVEST_VIEW') {
+             // @ts-ignore
+             if (unit.steeringForce && unit.steeringForce.x !== 0) {
+                 // @ts-ignore
+                 scaleX = unit.steeringForce.x > 0 ? 1 : -1;
+             }
         }
 
-        // --- Visual Context Handling (Replaced Direct Gene Logic) ---
-        
-        // 1. Burrowing (Alpha)
+        // Apply visual context states
         if (unit.context.isBurrowed) {
              view.alpha = 0.5;
-        } else if (!unit.isDead) {
+        } else if (unit.isDead) {
+             view.alpha = 1.0 - (unit.decayTimer / 2.0);
+             view.rotation = Math.PI / 2;
+             // Don't draw HP bar if dead
+        } else {
              view.alpha = 1.0;
+             view.rotation = 0;
+             
+             // Bobbing
+             view.y += Math.sin(Date.now() / 200 + unit.id) * 2;
         }
         
-        // 2. Ghosting (Bobbing)
-        if (unit.context.isGhosting && !unit.isDead) {
-             view.y += Math.sin(Date.now() / 200) * 0.5;
-        }
-        
-        // 3. Detonating (Pulsing)
-        if (unit.context.detonating && !unit.isDead) {
+        if (unit.context.detonating) {
              const t = Math.sin(Date.now() / 50); 
              view.tint = t > 0 ? 0xff0000 : 0xffffff;
-             view.scale.set(1.0 + (unit.context.detonateTimer || 0));
         } else {
              view.tint = 0xffffff;
         }
 
-        // Draw Carry Bag dynamic update
-        // @ts-ignore
-        if (unit.context.carryAmount > 0 && !unit.context.visualHasBag) {
-            // @ts-ignore
-             unit.context.visualHasBag = true;
-             this.drawUnit(unit);
-        } else if (!unit.context.carryAmount && unit.context.visualHasBag) {
-             // @ts-ignore
-             unit.context.visualHasBag = false;
-             this.drawUnit(unit);
+        view.scale.set(scaleX, scaleY);
+
+        // Batched HP Bar Rendering
+        // Only draw if damaged and not dead
+        if (!unit.isDead && unit.stats.hp < unit.stats.maxHp) {
+             const pct = Math.max(0, unit.stats.hp / unit.stats.maxHp);
+             const barW = 20;
+             const barH = 3;
+             const yOff = -unit.stats.height - 8;
+             
+             this.hpBarGraphics.beginFill(0x550000);
+             this.hpBarGraphics.drawRect(unit.x - barW/2, unit.y + yOff, barW, barH);
+             this.hpBarGraphics.beginFill(unit.faction === Faction.HUMAN ? 0xff0000 : 0x00ff00);
+             this.hpBarGraphics.drawRect(unit.x - barW/2, unit.y + yOff, barW * pct, barH);
+             this.hpBarGraphics.endFill();
         }
-        
-        if (unit.isDead) {
-            // @ts-ignore
-            view.alpha = 1.0 - (unit.decayTimer / 2.0); 
-            view.rotation = Math.PI / 2;
-        } else if (!unit.context.detonating) {
-            // Default breathing animation if not special
-            view.y += Math.sin(Date.now() / 200 + unit.id) * 2;
-            if (mode === 'COMBAT_VIEW') {
-               view.scale.x = (unit.faction === Faction.ZERG) ? 1 : -1;
-            } else if (mode === 'HARVEST_VIEW') {
-                // @ts-ignore
-                 if (unit.steeringForce && unit.steeringForce.x !== 0) {
-                     // @ts-ignore
-                     view.scale.x = unit.steeringForce.x > 0 ? 1 : -1;
-                 }
+    }
+
+    public updateParticles(dt: number) {
+        // Clear HP graphics every frame before redrawing in updateUnitVisuals loop (called externally)
+        // BUT wait, updateUnitVisuals is called per unit.
+        // We should clear it once per frame. 
+        // We can expose a `prepareFrame()` method or clear it here if this is called once per frame.
+        // Assuming updateParticles is called once per frame by GameEngine.
+        this.hpBarGraphics.clear();
+
+        let i = this.activeParticles.length;
+        while (i--) {
+            const p = this.activeParticles[i];
+            if (!p.update(p, dt)) {
+                p.view.destroy();
+                this.activeParticles.splice(i, 1);
             }
         }
     }
@@ -300,10 +332,8 @@ export class WorldRenderer {
         this.harvestNodeGraphics = [];
         
         if (nodes.length > 0) {
-             // Hive Entrance Visualization in Harvest Mode
             const hive = new Graphics();
             hive.beginFill(0x550055);
-            // Draw a spiky entrance
             hive.drawPolygon([-30, 0, -20, -40, 0, -20, 20, -40, 30, 0, 0, 10]);
             hive.lineStyle(2, 0xaa00aa);
             hive.drawCircle(0, 0, 45 + Math.sin(Date.now()/500)*5);
@@ -315,15 +345,12 @@ export class WorldRenderer {
         nodes.forEach((node, idx) => {
             const multiplier = node.richness;
             const g = new Graphics(); 
-            
-            // Draw Crystal Cluster
             const color = 0x00ff00;
             const alpha = 0.6;
             
             g.beginFill(color, alpha);
             g.lineStyle(1, 0xccffcc, 0.8);
             
-            // Procedural jagged shape
             const shards = 3 + Math.floor(Math.random() * 3);
             for(let i=0; i<shards; i++) {
                 const h = 20 + Math.random() * 20 * multiplier;
@@ -332,16 +359,10 @@ export class WorldRenderer {
                 const cx = Math.cos(angle) * 5;
                 const cy = Math.sin(angle) * 5;
                 
-                // Draw a crystal shard
-                g.drawPolygon([
-                    cx - w/2, cy, 
-                    cx, cy - h, 
-                    cx + w/2, cy
-                ]);
+                g.drawPolygon([cx - w/2, cy, cx, cy - h, cx + w/2, cy]);
             }
             g.endFill();
             
-            // Glow
             g.beginFill(color, 0.2);
             g.drawCircle(0, -10, 30 * multiplier);
             g.endFill();
@@ -360,6 +381,8 @@ export class WorldRenderer {
         this.harvestNodeGraphics = [];
         this.activeParticles.forEach(p => p.view.destroy());
         this.activeParticles = [];
+        this.hpBarGraphics.clear();
+        this.decalContainer.removeChildren();
     }
 
     public destroy() {
@@ -371,16 +394,5 @@ export class WorldRenderer {
     public addParticle(p: any) {
         this.particleLayer.addChild(p.view);
         this.activeParticles.push(p);
-    }
-
-    public updateParticles(dt: number) {
-        let i = this.activeParticles.length;
-        while (i--) {
-            const p = this.activeParticles[i];
-            if (!p.update(p, dt)) {
-                p.view.destroy();
-                this.activeParticles.splice(i, 1);
-            }
-        }
     }
 }

@@ -1,6 +1,5 @@
 
-
-import { Graphics } from 'pixi.js';
+import { Sprite } from 'pixi.js';
 import { IUnit, UnitRuntimeStats, Faction, UnitType, GameModifiers, StatusType, GeneConfig } from '../types';
 import { UNIT_CONFIGS, LANE_Y, LANE_HEIGHT } from '../constants';
 import { DataManager } from './DataManager';
@@ -28,8 +27,7 @@ export class Unit implements IUnit {
   waveOffset: number = 0;
   frameOffset: number = 0;
   steeringForce: { x: number, y: number } = { x: 0, y: 0 };
-  view: Graphics | null = null;
-  hpBar: Graphics | null = null;
+  view: Sprite | null = null;
   statuses: Partial<Record<StatusType, any>> = {};
   geneConfig: GeneConfig[] = [];
 
@@ -48,11 +46,8 @@ export class UnitPool {
     this.renderer = renderer;
     for (let i = 0; i < size; i++) {
       const u = new Unit(i);
-      u.view = new Graphics();
-      u.hpBar = new Graphics();
-      u.view.addChild(u.hpBar);
-      this.renderer.unitLayer.addChild(u.view);
-      u.view.visible = false;
+      // View initialization is now handled by the renderer using textures
+      this.renderer.initUnitView(u);
       this.pool.push(u);
       this.freeIndices.push(i); 
     }
@@ -102,7 +97,9 @@ export class UnitPool {
       unit.view.alpha = 1.0;
       unit.view.scale.set(1.0);
       unit.view.tint = 0xffffff;
-      this.renderer.drawUnit(unit);
+      unit.view.rotation = 0;
+      // Assign Texture
+      this.renderer.assignTexture(unit);
     }
     return unit;
   }
