@@ -16,6 +16,7 @@ export const TERRAIN_CHUNKS: Record<string, ChunkTemplate[]> = {
         {
             id: 'checkpoint_gate',
             width: 1200,
+            isStronghold: true, // SIEGE ENCOUNTER
             obstacles: [
                 { type: 'WALL', x: 800, y: 0, width: 30, height: 250, health: 5000, maxHealth: 5000 }, // Top Wall (Blocks y < 0)
                 { type: 'WALL', x: 800, y: 350, width: 30, height: 250, health: 5000, maxHealth: 5000 }, // Bottom Wall (Blocks y > 100)
@@ -29,6 +30,7 @@ export const TERRAIN_CHUNKS: Record<string, ChunkTemplate[]> = {
         {
             id: 'fortified_wall',
             width: 1200,
+            isStronghold: true, // SIEGE ENCOUNTER
             obstacles: [
                 { type: 'WALL', x: 600, y: 150, width: 40, height: 800, health: 12000, maxHealth: 12000 }, // Full Block
             ],
@@ -63,6 +65,7 @@ export const TERRAIN_CHUNKS: Record<string, ChunkTemplate[]> = {
         {
             id: 'split_decision',
             width: 1200,
+            isStronghold: true, // SIEGE ENCOUNTER
             obstacles: [
                 { type: 'WALL', x: 600, y: 150, width: 400, height: 60, health: 10000, maxHealth: 10000 }, // Center block
             ],
@@ -90,6 +93,7 @@ export const TERRAIN_CHUNKS: Record<string, ChunkTemplate[]> = {
         {
             id: 'the_bridge',
             width: 1200,
+            isStronghold: true, // SIEGE ENCOUNTER
             obstacles: [
                 // Top Water (Simulated by Rock/Wall for now, but visually "Void")
                 { type: 'WATER', x: 600, y: -150, width: 1200, height: 200 },
@@ -104,9 +108,10 @@ export const TERRAIN_CHUNKS: Record<string, ChunkTemplate[]> = {
         {
             id: 'bunker_hill',
             width: 1200,
+            isStronghold: true, // SIEGE ENCOUNTER
             obstacles: [
-                { type: 'WALL', x: 400, y: 0, width: 200, height: 20, health: 5000 },
-                { type: 'WALL', x: 400, y: 200, width: 200, height: 20, health: 5000 },
+                { type: 'WALL', x: 400, y: 0, width: 200, height: 20, health: 5000, maxHealth: 5000 },
+                { type: 'WALL', x: 400, y: 200, width: 200, height: 20, health: 5000, maxHealth: 5000 },
                 { type: 'ROCK', x: 800, y: 100, width: 100, height: 100 }
             ],
             spawnPoints: [

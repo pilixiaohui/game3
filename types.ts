@@ -411,6 +411,7 @@ export interface ObstacleDef {
     x: number; y: number; width: number; height: number;
     health?: number;
     maxHealth?: number;
+    chunkId?: string; // New: track which chunk this obstacle belongs to
 }
 
 export interface ChunkTemplate {
@@ -418,6 +419,7 @@ export interface ChunkTemplate {
     width: number;
     obstacles: ObstacleDef[];
     spawnPoints: { x: number, y: number, type: string }[];
+    isStronghold?: boolean; // New: marks this chunk as a siege encounter
 }
 
 export interface HarvestNodeDef {

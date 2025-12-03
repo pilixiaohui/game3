@@ -1,4 +1,5 @@
 
+
 import { DataManager, SimpleEventEmitter } from '../DataManager';
 import { UnitPool } from '../Unit';
 import { ObstacleDef, RegionData, Faction, UnitType } from '../../types';
@@ -6,17 +7,24 @@ import { TERRAIN_CHUNKS } from '../../config/terrain';
 import { STAGE_WIDTH, LANE_Y } from '../../constants';
 import { FlowField } from '../FlowField';
 
+type GameState = 'MARCH' | 'SIEGE';
+
 export class LevelManager {
     public activeRegionId: number = 0;
     public loadedRegionId: number = -1; // Track currently loaded region
     public currentStageIndex: number = 0;
     public cameraX: number = 0;
     public activeObstacles: ObstacleDef[] = [];
+    public currentState: GameState = 'MARCH';
     
     private unitPool: UnitPool;
     private events: SimpleEventEmitter;
     private lastGeneratedStage: number = -1;
     public flowField: FlowField;
+
+    // Siege Logic
+    private currentSiegeTargetX: number = 0;
+    private activeSiegeObstacleIds: Set<ObstacleDef> = new Set();
 
     constructor(unitPool: UnitPool, events: SimpleEventEmitter) {
         this.unitPool = unitPool;
@@ -34,6 +42,7 @@ export class LevelManager {
 
         this.activeRegionId = regionId;
         this.loadedRegionId = regionId;
+        this.currentState = 'MARCH';
         
         const saved = DataManager.instance.state.world.regions[regionId];
         this.currentStageIndex = Math.floor(saved ? saved.devourProgress : 0);
@@ -47,6 +56,7 @@ export class LevelManager {
 
         // Reset Terrain State for the new region
         this.activeObstacles = [];
+        this.activeSiegeObstacleIds.clear();
         this.lastGeneratedStage = -1;
 
         // Pre-generate current and next stage to ensure visibility
@@ -57,36 +67,55 @@ export class LevelManager {
     }
 
     public update(dt: number, activeUnits: any[]) {
-        // Camera Follow Logic (Calculates data, doesn't render)
         let targetX = this.cameraX;
-        let leadZergX = -99999;
-        let zergCount = 0;
-        
-        for (const u of activeUnits) {
-            if (u.faction === Faction.ZERG && !u.isDead) {
-                if (u.x > leadZergX) leadZergX = u.x;
-                zergCount++;
-            }
-        }
-        
-        if (zergCount > 0) targetX = leadZergX + 300;
 
-        // Wall Limiter
-        let limitX = 999999;
-        for (const wall of this.activeObstacles) {
-            if (wall.type === 'WALL' && wall.x > this.cameraX && wall.x < limitX) limitX = wall.x;
+        // --- STATE MACHINE: MARCH vs SIEGE ---
+
+        if (this.currentState === 'SIEGE') {
+             // Check victory condition: Are all active siege obstacles destroyed?
+             if (this.activeSiegeObstacleIds.size === 0) {
+                 this.currentState = 'MARCH';
+                 this.events.emit('FX', { type: 'TEXT', x: this.cameraX + 400, y: 0, text: "BREACH!", color: 0x00ff00, fontSize: 30 });
+             } else {
+                 // Lock camera to siege target
+                 targetX = this.currentSiegeTargetX;
+                 
+                 // Verify obstacles are still alive (double check)
+                 this.activeSiegeObstacleIds.forEach(obs => {
+                     if (!this.activeObstacles.includes(obs)) {
+                         this.activeSiegeObstacleIds.delete(obs);
+                     }
+                 });
+             }
+        } 
+        
+        if (this.currentState === 'MARCH') {
+            // Camera Follow Logic (Lead Zerg)
+            let leadZergX = -99999;
+            let zergCount = 0;
+            
+            for (const u of activeUnits) {
+                if (u.faction === Faction.ZERG && !u.isDead) {
+                    if (u.x > leadZergX) leadZergX = u.x;
+                    zergCount++;
+                }
+            }
+            
+            if (zergCount > 0) targetX = leadZergX + 300;
+
+            // Fallback: drift forward slowly if no zergs, to show enemies
+            if (zergCount === 0) targetX += 50 * dt;
+
+            // Prevent back-tracking
+            if (targetX < this.cameraX) targetX = this.cameraX;
         }
-        
-        if (targetX > limitX - 200) targetX = limitX - 200;
-        
-        this.cameraX += (targetX - this.cameraX) * 0.1;
+
+        // Apply Camera Smoothing
+        this.cameraX += (targetX - this.cameraX) * 0.08;
 
         // --- ENDLESS GENERATION LOGIC ---
-        // Determine the stage index at the right edge of the screen (approx cameraX + width)
         const lookAheadStage = Math.floor((this.cameraX + STAGE_WIDTH) / STAGE_WIDTH);
         
-        // If we are looking into a stage that hasn't been generated yet, generate it.
-        // We typically generate one step ahead of the last generated one to keep continuity.
         if (lookAheadStage > this.lastGeneratedStage) {
             this.generateChunk(this.lastGeneratedStage + 1);
             this.updateFlowField();
@@ -106,7 +135,6 @@ export class LevelManager {
     }
 
     public generateChunk(stageIndex: number) {
-        // Prevent duplicate generation
         if (stageIndex <= this.lastGeneratedStage && this.lastGeneratedStage !== -1) return;
         
         this.lastGeneratedStage = stageIndex;
@@ -120,17 +148,38 @@ export class LevelManager {
             ...def, 
             x: def.x + stageOffsetX, 
             maxHealth: def.health, 
-            health: def.health 
+            health: def.health,
+            chunkId: `${stageIndex}_${template.id}`
         }));
         
         // Append to active obstacles (Endless)
         this.activeObstacles.push(...newObstacles);
         
+        // SIEGE TRIGGER LOGIC
+        if (template.isStronghold && this.currentState !== 'SIEGE') {
+             // Look for major walls to be the "Lock Target"
+             const walls = newObstacles.filter(o => o.type === 'WALL' && (o.health || 0) > 2000);
+             if (walls.length > 0) {
+                 // Determine lock position (average x of walls - offset)
+                 const avgX = walls.reduce((sum, w) => sum + w.x, 0) / walls.length;
+                 
+                 // If this is the *immediate* next chunk (or close), engage Siege
+                 // Note: generateChunk runs ahead. We set logic to trigger siege when camera gets close?
+                 // For simplicity in this flow, we set up the siege data, and update loop engages it if near.
+                 // Actually, simpler: Since we generate ahead, let's just mark these obstacles.
+                 
+                 // Logic change: We just add them to a tracking set. 
+                 // If the camera gets close to them in Update, we switch state.
+                 // Wait, Update loop uses state to determine camera.
+                 // Let's force siege if we generated a siege chunk and we are close? 
+                 // Better: "Trigger" lines.
+             }
+        }
+
         // Notify renderer via event
         this.events.emit('TERRAIN_UPDATE', this.activeObstacles);
         
         // Spawn Enemies
-        // Calculate dynamic difficulty: Base for region + distance scaling
         const difficultyLevel = (this.activeRegionId * 5) + stageIndex;
 
         template.spawnPoints.forEach(sp => {
@@ -142,6 +191,32 @@ export class LevelManager {
                 difficultyLevel
             );
         });
+
+        // Trigger Siege State Check immediately if relevant
+        if (template.isStronghold) {
+            // Find key obstacles to lock onto
+            const fortressObstacles = newObstacles.filter(o => o.type === 'WALL' || o.type === 'WATER');
+            if (fortressObstacles.length > 0) {
+                 // We simply switch to siege mode when we generate it? 
+                 // No, that would snap camera.
+                 // We will let the update loop detect "Approaching Siege".
+                 // For now, let's just set the Siege Target and allow camera to drift to it, then lock.
+                 
+                 const targetX = (stageOffsetX + template.width / 2) - 400; // Center screen on stronghold
+                 this.currentSiegeTargetX = targetX;
+                 
+                 // Register obstacles that must be destroyed
+                 fortressObstacles.forEach(o => {
+                     if (o.type === 'WALL') this.activeSiegeObstacleIds.add(o);
+                 });
+
+                 // If we have valid targets, engage siege mode logic in next update frames
+                 if (this.activeSiegeObstacleIds.size > 0) {
+                      this.currentState = 'SIEGE';
+                      this.events.emit('FX', { type: 'TEXT', x: this.cameraX + 400, y: 0, text: "SIEGE DETECTED", color: 0xff0000, fontSize: 24 });
+                 }
+            }
+        }
     }
 
     public damageObstacle(obs: ObstacleDef, dmg: number): boolean {
@@ -149,6 +224,11 @@ export class LevelManager {
         obs.health -= dmg;
         if (obs.health <= 0) {
             this.activeObstacles = this.activeObstacles.filter(o => o !== obs);
+            
+            if (this.activeSiegeObstacleIds.has(obs)) {
+                this.activeSiegeObstacleIds.delete(obs);
+            }
+            
             this.events.emit('TERRAIN_UPDATE', this.activeObstacles);
             this.updateFlowField();
             return true;
@@ -157,6 +237,7 @@ export class LevelManager {
     }
 
     private updateFlowField() {
+        // Optimize: Only update for visible range + buffer
         const startX = Math.max(0, this.cameraX - 500);
         const endX = this.cameraX + 2000;
         this.flowField.update(this.activeObstacles, startX, endX);

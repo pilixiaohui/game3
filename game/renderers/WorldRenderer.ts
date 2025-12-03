@@ -1,4 +1,5 @@
 
+
 import { Application, Container, Graphics, TilingSprite, Text, TextStyle, Texture, Sprite, RenderTexture, ParticleContainer, BaseTexture, Rectangle } from 'pixi.js';
 import { IUnit, ObstacleDef, UnitType, Faction, IFxEvent, HarvestNodeDef } from '../../types';
 import { LANE_Y, UNIT_CONFIGS, ELEMENT_COLORS } from '../../constants';
@@ -24,6 +25,7 @@ export class WorldRenderer {
     private decalContainer: Container;
     private decalRenderTexture: RenderTexture;
     private decalSprite: Sprite;
+    private sharedStampSprite: Sprite; // Shared sprite for stamping
     
     // HP Bar Batching
     private hpBarGraphics: Graphics;
@@ -43,6 +45,7 @@ export class WorldRenderer {
         element.appendChild(this.app.view);
 
         this.bakeUnitTextures();
+        this.sharedStampSprite = new Sprite(Texture.EMPTY);
 
         // Layers
         const bgGfx = new Graphics();
@@ -167,8 +170,7 @@ export class WorldRenderer {
     }
 
     public initUnitView(unit: IUnit) {
-        // Create Sprite but don't assign texture yet (spawn logic handles it)
-        // We use a placeholder texture or let spawn handle it
+        // Create Sprite with empty texture initially
         const sprite = new Sprite(Texture.EMPTY);
         sprite.anchor.set(0.5, 1.0);
         unit.view = sprite;
@@ -187,16 +189,18 @@ export class WorldRenderer {
         const tex = this.unitTextures.get(data.type);
         if (!tex) return;
 
-        const s = new Sprite(tex);
+        // Use shared sprite to avoid GC
+        const s = this.sharedStampSprite;
+        s.texture = tex;
         s.anchor.set(0.5, 1.0);
         s.position.set(data.x, data.y - LANE_Y); // Relative to decalRenderTexture center
         s.rotation = data.rotation;
-        s.scale.set(data.scaleX, 1.0);
-        s.tint = 0x555555; // Darken
+        s.scale.set(data.scaleX, 1.0); // Maintain squash status
+        s.tint = 0x333333; // Dark corpse
+        s.alpha = 0.7;
         
         // Stamp onto the render texture
         this.app.renderer.render(s, { renderTexture: this.decalRenderTexture, clear: false });
-        s.destroy();
     }
 
     private handleFxEvent(e: IFxEvent) {
@@ -261,8 +265,6 @@ export class WorldRenderer {
         this.world.pivot.x = mode === 'COMBAT_VIEW' ? cameraX : 0;
         this.groundLayer.tilePosition.x = -this.world.pivot.x * 0.5;
         this.bgLayer.tilePosition.x = -this.world.pivot.x * 0.1;
-        
-        // Parallax Decals logic would go here if needed, but for now we just scroll decals with the world container
     }
 
     public updateUnitVisuals(unit: IUnit, mode: string) {
@@ -270,6 +272,12 @@ export class WorldRenderer {
         if (!unit.view) return;
         const view = unit.view as Sprite;
 
+        if (unit.isDead || !unit.active) {
+             view.alpha = 0; // Hide it, effectively culling it from rendering in ParticleContainer
+             return;
+        }
+
+        view.alpha = unit.context.isBurrowed ? 0.5 : 1.0;
         view.position.set(unit.x, unit.y);
         
         let scaleX = 1.0;
@@ -277,16 +285,18 @@ export class WorldRenderer {
         
         if (mode === 'COMBAT_VIEW') {
             const dir = (unit.faction === Faction.ZERG) ? 1 : -1;
-            scaleX = dir;
             
             // JUICE: Squash and Stretch based on speed
             if (unit.stats.speed > 0) {
-                 // Estimate current speed magnitude from engine (if available) or assume moving if state is MOVE
                  if (unit.state === 'MOVE' || unit.state === 'ATTACK') {
                       const speedRatio = Math.min(1, unit.stats.speed / 200) * 0.15;
                       scaleX = dir * (1 + speedRatio);
                       scaleY = 1 - speedRatio;
+                 } else {
+                      scaleX = dir;
                  }
+            } else {
+                 scaleX = dir;
             }
 
         } else if (mode === 'HARVEST_VIEW') {
@@ -294,19 +304,8 @@ export class WorldRenderer {
                  scaleX = unit.steeringForce.x > 0 ? 1 : -1;
              }
         }
-
-        if (unit.context.isBurrowed) {
-             view.alpha = 0.5;
-        } else if (unit.isDead) {
-             view.alpha = 0; // Hide sprite, decal handles it
-        } else {
-             view.alpha = 1.0;
-             view.rotation = 0;
-             if (unit.state === 'MOVE') {
-                view.y += Math.sin(Date.now() / 150 + unit.id) * 2; // Bounce
-             }
-        }
         
+        // Detonation Flash
         if (unit.context.detonating) {
              const t = Math.sin(Date.now() / 50); 
              view.tint = t > 0 ? 0xff0000 : 0xffffff;
@@ -315,6 +314,7 @@ export class WorldRenderer {
         }
 
         view.scale.set(scaleX, scaleY);
+        view.rotation = 0; // Reset rotation unless specific logic adds it
     }
     
     public renderHpBars(activeUnits: IUnit[]) {
