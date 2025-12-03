@@ -1,5 +1,4 @@
 
-
 import { DataManager, SimpleEventEmitter } from '../DataManager';
 import { UnitPool } from '../Unit';
 import { ObstacleDef, RegionData, Faction, UnitType } from '../../types';
@@ -162,17 +161,6 @@ export class LevelManager {
              if (walls.length > 0) {
                  // Determine lock position (average x of walls - offset)
                  const avgX = walls.reduce((sum, w) => sum + w.x, 0) / walls.length;
-                 
-                 // If this is the *immediate* next chunk (or close), engage Siege
-                 // Note: generateChunk runs ahead. We set logic to trigger siege when camera gets close?
-                 // For simplicity in this flow, we set up the siege data, and update loop engages it if near.
-                 // Actually, simpler: Since we generate ahead, let's just mark these obstacles.
-                 
-                 // Logic change: We just add them to a tracking set. 
-                 // If the camera gets close to them in Update, we switch state.
-                 // Wait, Update loop uses state to determine camera.
-                 // Let's force siege if we generated a siege chunk and we are close? 
-                 // Better: "Trigger" lines.
              }
         }
 
@@ -197,11 +185,6 @@ export class LevelManager {
             // Find key obstacles to lock onto
             const fortressObstacles = newObstacles.filter(o => o.type === 'WALL' || o.type === 'WATER');
             if (fortressObstacles.length > 0) {
-                 // We simply switch to siege mode when we generate it? 
-                 // No, that would snap camera.
-                 // We will let the update loop detect "Approaching Siege".
-                 // For now, let's just set the Siege Target and allow camera to drift to it, then lock.
-                 
                  const targetX = (stageOffsetX + template.width / 2) - 400; // Center screen on stronghold
                  this.currentSiegeTargetX = targetX;
                  

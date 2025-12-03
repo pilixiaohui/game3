@@ -736,14 +736,24 @@ GeneLibrary.register({
         const moveMult = params.multiplier || 1.0;
 
         // Flow Field Integration
-        // Access LevelManager via engine interface (assuming type augmentation or direct property access)
+        // Access LevelManager via engine interface
         // @ts-ignore
         const lm = engine.levelManager;
-        const flow = lm ? lm.getFlowVector(self.x, self.y) : { x: 1, y: 0 };
+        // Default forward vector if no flow field logic found, but now strictly flow
+        const flow = lm ? lm.getFlowVector(self.x, self.y) : { x: (self.faction === Faction.ZERG ? 1 : -1), y: 0 };
         
-        // Default Flow Direction (Move Right for Zerg, Left for Human generally, but flow field handles terrain)
-        // Override with direct target seeking if close
-        if (self.target && !self.target.isDead) {
+        // HARVEST LOGIC OVERRIDE
+        if (self.state === 'SEEK' || self.state === 'RETURN') {
+             // For harvesting, we use the pre-calculated steering force from HarvestSystem
+             // But applied here to keep physics consistent
+             if (self.steeringForce.x !== 0 || self.steeringForce.y !== 0) {
+                 velocity.x += self.steeringForce.x * speedMult * dt;
+                 velocity.y += self.steeringForce.y * speedMult * dt;
+                 isMoving = true;
+             }
+        } 
+        // COMBAT LOGIC
+        else if (self.target && !self.target.isDead) {
             const distSq = (self.target.x - self.x)**2 + (self.target.y - self.y)**2;
             const dist = Math.sqrt(distSq);
             if (dist > self.stats.range * 0.9) {
@@ -753,7 +763,7 @@ GeneLibrary.register({
                 
                 // Weight: 30% direct seek, 70% flow (Flow is safer for navigation)
                 // If close, bias towards direct seek
-                const bias = Math.min(1.0, 300 / dist); 
+                const bias = Math.min(1.0, 300 / (dist + 0.1)); 
                 const finalX = dirX * bias + flow.x * (1 - bias);
                 const finalY = dirY * bias + flow.y * (1 - bias);
 
@@ -763,16 +773,13 @@ GeneLibrary.register({
             }
         } 
         else {
-            const moveDir = self.faction === Faction.ZERG ? 1 : -1;
             // When just marching, follow flow field heavily
             if (self.stats.speed > 0) {
                 // Adjust flow X based on faction direction if no target
-                // Zerg wants to go +X, Human wants to go -X
-                // Flow field naturally points right. Reverse for humans?
-                // For now assuming flow field is built for "Attackers" (Zerg).
+                // Zerg uses flow directly. Human reverses flow (defenders).
                 
                 const finalX = (self.faction === Faction.ZERG) ? flow.x : -flow.x;
-                const finalY = flow.y; // Y is symmetric usually
+                const finalY = flow.y; 
                 
                 velocity.x += finalX * self.stats.speed * self.speedVar * speedMult * moveMult * dt;
                 velocity.y += finalY * self.stats.speed * self.speedVar * speedMult * moveMult * dt;
@@ -780,8 +787,12 @@ GeneLibrary.register({
             }
         }
 
-        if (isMoving) self.state = 'MOVE';
-        else if (self.state !== 'ATTACK') self.state = 'IDLE';
+        if (isMoving && self.state !== 'SEEK' && self.state !== 'RETURN' && self.state !== 'DEPOSIT') {
+            self.state = 'MOVE';
+        } else if (self.state !== 'ATTACK' && !isMoving) {
+            // If we aren't moving and not attacking, idle.
+             if (self.state === 'MOVE') self.state = 'IDLE';
+        }
     }
 });
 
@@ -791,8 +802,9 @@ GeneLibrary.register({
     onMove: (self, velocity, dt, engine, params) => {
         if (self.state === 'ATTACK' || self.stats.speed <= 0) return;
 
+        // Optimization: Stagger updates based on ID to spread load
         const frame = Math.floor(Date.now() / 32); 
-        const shouldUpdate = (frame + self.frameOffset) % 3 === 0;
+        const shouldUpdate = (frame + self.id) % 3 === 0;
 
         if (shouldUpdate) {
             const sepRadius = params.separationRadius || 40;
@@ -837,6 +849,7 @@ GeneLibrary.register({
                      forceX += aliWeight * 2.0; 
                 }
             }
+            // Small jitter for "organic" look
             forceX += (Math.random() - 0.5) * 5.0;
             forceY += (Math.random() - 0.5) * 5.0;
 
@@ -855,5 +868,6 @@ GeneLibrary.register({
     onMove: (self, velocity, dt, engine, params) => {
         const mult = params.multiplier || 1.2;
         velocity.x *= mult;
+        velocity.y *= mult;
     }
 });

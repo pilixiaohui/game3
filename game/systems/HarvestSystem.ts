@@ -80,7 +80,10 @@ export class HarvestSystem {
 
     private updateHarvester(u: Unit, dt: number) {
          // --- STATE MACHINE ---
-         
+         // Instead of modifying u.x/u.y, we set steeringForce.
+         // The GeneSystem (GENE_COMBAT_MOVEMENT) will see the state is 'SEEK'/'RETURN'
+         // and apply this force as velocity.
+
          if (u.state === 'IDLE') {
              // Find nearest node
              let minDist = 999999;
@@ -105,11 +108,14 @@ export class HarvestSystem {
                  if (distSq < 400) { // Reached node (20px radius)
                      u.state = 'HARVEST';
                      u.context.harvestTimer = 0;
+                     u.steeringForce.x = 0;
+                     u.steeringForce.y = 0;
                  } else {
                      const dist = Math.sqrt(distSq);
-                     u.x += (dx/dist) * u.stats.speed * dt;
-                     u.y += (dy/dist) * u.stats.speed * dt;
-                     u.steeringForce.x = dx; // Logic data for visual facing (handled by renderer)
+                     const speed = u.stats.speed;
+                     // Set steering force to direct velocity vector
+                     u.steeringForce.x = (dx/dist) * speed; 
+                     u.steeringForce.y = (dy/dist) * speed;
                  }
              } else {
                  u.state = 'IDLE';
@@ -132,11 +138,13 @@ export class HarvestSystem {
              
              if (distSq < 400) { // Reached Hive
                  u.state = 'DEPOSIT';
+                 u.steeringForce.x = 0;
+                 u.steeringForce.y = 0;
              } else {
                  const dist = Math.sqrt(distSq);
-                 u.x += (dx/dist) * u.stats.speed * dt;
-                 u.y += (dy/dist) * u.stats.speed * dt;
-                 u.steeringForce.x = dx;
+                 const speed = u.stats.speed;
+                 u.steeringForce.x = (dx/dist) * speed;
+                 u.steeringForce.y = (dy/dist) * speed;
              }
          }
          
