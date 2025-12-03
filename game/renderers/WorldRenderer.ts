@@ -66,8 +66,8 @@ export class WorldRenderer {
 
         // Listen for FX Events
         events.on('FX', this.handleFxEvent.bind(this));
-        // Renamed event listener to match LevelManager
-        events.on('TERRAIN_UPDATED', (obstacles: ObstacleDef[]) => this.drawTerrain(obstacles));
+        // Strict event name matching review requirements
+        events.on('TERRAIN_CHANGED', (obstacles: ObstacleDef[]) => this.drawTerrain(obstacles));
         events.on('HARVEST_NODES_UPDATED', (nodes: HarvestNodeDef[]) => this.drawHarvestNodes(nodes));
     }
 
