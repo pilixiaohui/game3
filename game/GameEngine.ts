@@ -1,7 +1,7 @@
 
 import { Graphics, Text, TextStyle } from 'pixi.js';
 import { Faction, GameModifiers, UnitType, GameStateSnapshot, IUnit, IGameEngine, StatusType, ElementType, ObstacleDef } from '../types';
-import { ELEMENT_COLORS } from '../constants';
+import { ELEMENT_COLORS, UNIT_SCREEN_CAPS } from '../constants';
 import { DataManager, SimpleEventEmitter } from './DataManager';
 import { SpatialHash } from './SpatialHash';
 import { WorldRenderer } from './renderers/WorldRenderer';
@@ -11,6 +11,7 @@ import { UnitPool } from './Unit';
 import { CombatSystem } from './systems/CombatSystem';
 import { HarvestSystem } from './systems/HarvestSystem';
 import { HiveVisualSystem } from './systems/HiveVisualSystem';
+import { DeploymentSystem } from './systems/DeploymentSystem';
 import { LevelManager } from './managers/LevelManager';
 
 export class GameEngine implements IGameEngine {
@@ -36,12 +37,16 @@ export class GameEngine implements IGameEngine {
   private userZoom: number = 1.0;
   public isPaused: boolean = false;
   
+  // Combat State
+  public combatEnabled: boolean = true;
+  
   public mode: 'COMBAT_VIEW' | 'HIVE' | 'HARVEST_VIEW' = 'HIVE';
 
   // Systems
   private combatSystem!: CombatSystem;
   private harvestSystem!: HarvestSystem;
   private hiveVisualSystem!: HiveVisualSystem;
+  private deploymentSystem!: DeploymentSystem;
   private levelManager!: LevelManager;
 
   constructor(isAuthority: boolean = false) {
@@ -64,6 +69,7 @@ export class GameEngine implements IGameEngine {
     this.combatSystem = new CombatSystem(this, this.unitPool, this.spatialHash, this.levelManager);
     this.harvestSystem = new HarvestSystem(this.unitPool, this.events);
     this.hiveVisualSystem = new HiveVisualSystem(this.unitPool, this.renderer);
+    this.deploymentSystem = new DeploymentSystem(this.unitPool, this.levelManager, this.events);
 
     // @ts-ignore
     this.renderer.app.view.addEventListener('wheel', this.handleWheel, { passive: false });
@@ -149,8 +155,10 @@ export class GameEngine implements IGameEngine {
         this.renderer.updateParticles(dt);
         return;
     } else if (this.mode === 'COMBAT_VIEW') {
-        // [CRITICAL FIX] DO NOT wrap this in isSimulationAuthority check!
-        // Combat must run on the SurfaceView even if it's not the economy authority.
+        // [CRITICAL FIX] Combat & Deployment run on SurfaceView
+        this.deploymentSystem.isEnabled = this.combatEnabled;
+        this.deploymentSystem.update(dt);
+        
         this.combatSystem.update(dt);
         this.levelManager.update(dt, this.unitPool?.getActiveUnits() || []);
         
