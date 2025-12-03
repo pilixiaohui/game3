@@ -1,4 +1,3 @@
-
 import { DataManager, SimpleEventEmitter } from '../DataManager';
 import { UnitPool } from '../Unit';
 import { ObstacleDef, RegionData, Faction, UnitType } from '../../types';
@@ -90,6 +89,18 @@ export class LevelManager {
         if (lookAheadStage > this.lastGeneratedStage) {
             this.generateChunk(this.lastGeneratedStage + 1);
             this.updateFlowField();
+            this.cullOldObstacles();
+        }
+    }
+
+    private cullOldObstacles() {
+        // Remove obstacles 2 stages behind
+        const thresholdX = this.cameraX - (STAGE_WIDTH * 2);
+        const originalCount = this.activeObstacles.length;
+        this.activeObstacles = this.activeObstacles.filter(o => o.x > thresholdX);
+        
+        if (this.activeObstacles.length !== originalCount) {
+             this.events.emit('TERRAIN_UPDATE', this.activeObstacles);
         }
     }
 

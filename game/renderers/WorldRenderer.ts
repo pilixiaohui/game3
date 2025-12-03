@@ -1,5 +1,4 @@
-
-import { Application, Container, Graphics, TilingSprite, Text, TextStyle, Texture, Sprite, RenderTexture } from 'pixi.js';
+import { Application, Container, Graphics, TilingSprite, Text, TextStyle, Texture, Sprite, RenderTexture, ParticleContainer } from 'pixi.js';
 import { IUnit, ObstacleDef, UnitType, Faction, IFxEvent, HarvestNodeDef } from '../../types';
 import { LANE_Y, UNIT_CONFIGS, ELEMENT_COLORS } from '../../constants';
 import { SimpleEventEmitter } from '../DataManager';
@@ -10,7 +9,7 @@ export class WorldRenderer {
     
     private bgLayer: TilingSprite;
     private groundLayer: TilingSprite;
-    public unitLayer: Container;
+    public unitLayer: ParticleContainer; // Changed to ParticleContainer
     public terrainLayer: Container;
     public particleLayer: Container;
     public hiveLayer: Container;
@@ -19,15 +18,17 @@ export class WorldRenderer {
     private obstacleGraphics: Graphics[] = [];
     private harvestNodeGraphics: Graphics[] = [];
     private textureCache: Map<UnitType, Texture> = new Map();
-    private decalTexture: RenderTexture | null = null;
     private decalContainer: Container;
     private hpBarGraphics: Graphics;
+    
+    // Throttle sorting
+    private sortTimer: number = 0;
 
     constructor(element: HTMLElement, events: SimpleEventEmitter) {
         this.app = new Application({ 
             resizeTo: element, 
             backgroundColor: 0x0a0a0a, 
-            antialias: false, // Turn off antialias for performance
+            antialias: false, 
             resolution: window.devicePixelRatio || 1, 
             autoDensity: true 
         });
@@ -62,10 +63,22 @@ export class WorldRenderer {
         this.app.stage.addChild(this.world);
 
         this.terrainLayer = new Container(); this.terrainLayer.zIndex = 5;
-        this.decalContainer = new Container(); this.terrainLayer.addChild(this.decalContainer); // Decals sit on terrain
+        this.decalContainer = new Container(); this.terrainLayer.addChild(this.decalContainer); 
         
         this.hiveLayer = new Container(); this.hiveLayer.zIndex = 6;
-        this.unitLayer = new Container(); this.unitLayer.zIndex = 10; this.unitLayer.sortableChildren = true;
+        
+        // ParticleContainer for maximum sprite performance
+        // Note: SortableChildren is NOT supported. We must sort manually.
+        this.unitLayer = new ParticleContainer(5000, {
+            scale: true,
+            position: true,
+            rotation: true,
+            uvs: true,
+            alpha: true,
+            tint: true
+        });
+        this.unitLayer.zIndex = 10;
+        
         this.particleLayer = new Container(); this.particleLayer.zIndex = 20;
         this.uiLayer = new Container(); this.uiLayer.zIndex = 30;
 
@@ -144,11 +157,10 @@ export class WorldRenderer {
         const texture = this.textureCache.get(unit.type);
         if (texture) {
             (unit.view as Sprite).texture = texture;
-            (unit.view as Sprite).anchor.set(0.5, 1.0); // Anchor at bottom center
+            (unit.view as Sprite).anchor.set(0.5, 1.0); 
         }
     }
 
-    // Renamed from drawUnit to initUnitView to clarify role
     public initUnitView(unit: IUnit) {
         const sprite = new Sprite();
         // Texture assignment happens in spawn via assignTexture
@@ -226,38 +238,28 @@ export class WorldRenderer {
         const view = unit.view as Sprite;
 
         view.position.set(unit.x, unit.y);
-        view.zIndex = unit.y; // Y-sorting
+        // ParticleContainer does NOT support zIndex. Sorting is manual below.
         
-        // Squash and Stretch Logic
         let scaleX = 1.0;
         let scaleY = 1.0;
         
-        // Face Direction
         if (mode === 'COMBAT_VIEW') {
-            // @ts-ignore
-            const vx = unit.lastVelocityX || 0; // Assume we might track this, or derive
             const dir = (unit.faction === Faction.ZERG) ? 1 : -1;
             scaleX = dir;
         } else if (mode === 'HARVEST_VIEW') {
-             // @ts-ignore
              if (unit.steeringForce && unit.steeringForce.x !== 0) {
-                 // @ts-ignore
                  scaleX = unit.steeringForce.x > 0 ? 1 : -1;
              }
         }
 
-        // Apply visual context states
         if (unit.context.isBurrowed) {
              view.alpha = 0.5;
         } else if (unit.isDead) {
              view.alpha = 1.0 - (unit.decayTimer / 2.0);
              view.rotation = Math.PI / 2;
-             // Don't draw HP bar if dead
         } else {
              view.alpha = 1.0;
              view.rotation = 0;
-             
-             // Bobbing
              view.y += Math.sin(Date.now() / 200 + unit.id) * 2;
         }
         
@@ -271,7 +273,6 @@ export class WorldRenderer {
         view.scale.set(scaleX, scaleY);
 
         // Batched HP Bar Rendering
-        // Only draw if damaged and not dead
         if (!unit.isDead && unit.stats.hp < unit.stats.maxHp) {
              const pct = Math.max(0, unit.stats.hp / unit.stats.maxHp);
              const barW = 20;
@@ -287,12 +288,14 @@ export class WorldRenderer {
     }
 
     public updateParticles(dt: number) {
-        // Clear HP graphics every frame before redrawing in updateUnitVisuals loop (called externally)
-        // BUT wait, updateUnitVisuals is called per unit.
-        // We should clear it once per frame. 
-        // We can expose a `prepareFrame()` method or clear it here if this is called once per frame.
-        // Assuming updateParticles is called once per frame by GameEngine.
         this.hpBarGraphics.clear();
+
+        // Perform manual Z-Sort for ParticleContainer every 5 frames to save CPU
+        this.sortTimer += dt;
+        if (this.sortTimer > 0.08) { // ~12 fps sorting
+            this.unitLayer.children.sort((a, b) => a.y - b.y);
+            this.sortTimer = 0;
+        }
 
         let i = this.activeParticles.length;
         while (i--) {

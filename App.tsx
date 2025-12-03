@@ -1,5 +1,3 @@
-
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { HiveView } from './components/HiveView';
 import { GameEngine } from './game/GameEngine';
@@ -15,8 +13,12 @@ const App: React.FC = () => {
   // Rates are transient runtime data
   const [rates, setRates] = useState<Resources>(() => DataManager.instance.rates);
   
-  // Force update trigger
-  const [, setTick] = useState(0);
+  // Refs for high-frequency DOM updates
+  const biomassRef = useRef<HTMLSpanElement>(null);
+  const enzymesRef = useRef<HTMLSpanElement>(null);
+  const dnaRef = useRef<HTMLSpanElement>(null);
+  const larvaRef = useRef<HTMLSpanElement>(null);
+  const swarmRef = useRef<HTMLDivElement>(null);
 
   // --- UI State ---
   const [activeRegion, setActiveRegion] = useState<RegionData | null>(null);
@@ -28,34 +30,60 @@ const App: React.FC = () => {
     activeZergCounts: {}
   });
 
-  // Subscribe to DataManager events
+  // Optimize DataManager subscriptions with throttling and direct DOM updates
   useEffect(() => {
+      let lastStateUpdate = 0;
+      const STATE_UPDATE_INTERVAL = 200; // 5Hz update for panels
+
       const handleDataChange = () => {
-          // Create a new reference to force React to detect change
-          setGlobalState(JSON.parse(JSON.stringify(DataManager.instance.state)));
-          setRates({...DataManager.instance.rates}); // Update rates display
-          setTick(t => t + 1);
+          const now = Date.now();
+
+          // 1. High Frequency: Direct DOM Manipulation
+          const state = DataManager.instance.state;
+          if (biomassRef.current) biomassRef.current.innerText = Math.floor(state.resources.biomass).toLocaleString();
+          if (enzymesRef.current) enzymesRef.current.innerText = Math.floor(state.resources.enzymes).toLocaleString();
+          if (dnaRef.current) dnaRef.current.innerText = Math.floor(state.resources.dna).toLocaleString();
+          if (larvaRef.current) larvaRef.current.innerText = Math.floor(state.resources.larva).toLocaleString();
+          
+          if (swarmRef.current) {
+               const count = state.hive.unitStockpile[UnitType.MELEE] + state.hive.unitStockpile[UnitType.RANGED]; 
+               swarmRef.current.innerText = `${count} / ${DataManager.instance.getMaxPopulationCap()}`;
+          }
+
+          // 2. Low Frequency: React State Update (for Panels)
+          if (now - lastStateUpdate > STATE_UPDATE_INTERVAL) {
+              setGlobalState(JSON.parse(JSON.stringify(state)));
+              setRates({...DataManager.instance.rates}); 
+              lastStateUpdate = now;
+          }
       };
 
       const dm = DataManager.instance;
+      // Hook into high frequency events
       dm.events.on('RESOURCE_CHANGED', handleDataChange);
-      dm.events.on('STOCKPILE_CHANGED', handleDataChange);
-      dm.events.on('PRODUCTION_CHANGED', handleDataChange);
-      dm.events.on('UNIT_UPGRADED', handleDataChange);
-      dm.events.on('REGION_PROGRESS', handleDataChange);
-      dm.events.on('REGION_UNLOCKED', handleDataChange);
-      dm.events.on('PLUGIN_EQUIPPED', handleDataChange);
-      dm.events.on('PLUGIN_UPGRADED', handleDataChange);
+      
+      // These events should trigger immediate React updates as they change structure
+      const handleStructuralChange = () => {
+          setGlobalState(JSON.parse(JSON.stringify(DataManager.instance.state)));
+      };
+
+      dm.events.on('STOCKPILE_CHANGED', handleStructuralChange);
+      dm.events.on('PRODUCTION_CHANGED', handleStructuralChange);
+      dm.events.on('UNIT_UPGRADED', handleStructuralChange);
+      dm.events.on('REGION_PROGRESS', handleStructuralChange);
+      dm.events.on('REGION_UNLOCKED', handleStructuralChange);
+      dm.events.on('PLUGIN_EQUIPPED', handleStructuralChange);
+      dm.events.on('PLUGIN_UPGRADED', handleStructuralChange);
 
       return () => {
           dm.events.off('RESOURCE_CHANGED', handleDataChange);
-          dm.events.off('STOCKPILE_CHANGED', handleDataChange);
-          dm.events.off('PRODUCTION_CHANGED', handleDataChange);
-          dm.events.off('UNIT_UPGRADED', handleDataChange);
-          dm.events.off('REGION_PROGRESS', handleDataChange);
-          dm.events.off('REGION_UNLOCKED', handleDataChange);
-          dm.events.off('PLUGIN_EQUIPPED', handleDataChange);
-          dm.events.off('PLUGIN_UPGRADED', handleDataChange);
+          dm.events.off('STOCKPILE_CHANGED', handleStructuralChange);
+          dm.events.off('PRODUCTION_CHANGED', handleStructuralChange);
+          dm.events.off('UNIT_UPGRADED', handleStructuralChange);
+          dm.events.off('REGION_PROGRESS', handleStructuralChange);
+          dm.events.off('REGION_UNLOCKED', handleStructuralChange);
+          dm.events.off('PLUGIN_EQUIPPED', handleStructuralChange);
+          dm.events.off('PLUGIN_UPGRADED', handleStructuralChange);
       };
   }, []);
 
@@ -108,13 +136,13 @@ const App: React.FC = () => {
       };
   });
 
-  // Helper for Top Bar
-  const ResourceItem = ({ label, value, rate, color, subColor }: { label: string, value: number, rate: number, color: string, subColor?: string }) => (
+  // Helper for Top Bar with Refs
+  const ResourceItem = ({ label, rate, color, subColor, valRef, initialVal }: any) => (
       <div className="flex flex-col min-w-[100px]">
           <span className="text-[10px] text-gray-500 uppercase tracking-widest">{label}</span>
           <div className="flex items-baseline gap-2">
-              <span className={`text-lg font-mono font-bold ${color} leading-none`}>
-                  {Math.floor(value).toLocaleString()}
+              <span ref={valRef} className={`text-lg font-mono font-bold ${color} leading-none`}>
+                  {Math.floor(initialVal).toLocaleString()}
               </span>
               <span className={`text-[10px] font-mono ${subColor || 'text-gray-500'}`}>
                   {rate >= 0 ? '+' : ''}{rate.toFixed(1)}/s
@@ -138,28 +166,32 @@ const App: React.FC = () => {
               <div className="flex gap-8">
                   <ResourceItem 
                     label="Biomass" 
-                    value={globalState.resources.biomass} 
+                    initialVal={globalState.resources.biomass}
+                    valRef={biomassRef}
                     rate={rates.biomass} 
                     color="text-green-500" 
                     subColor="text-green-800"
                   />
                   <ResourceItem 
                     label="Enzymes" 
-                    value={globalState.resources.enzymes} 
+                    initialVal={globalState.resources.enzymes}
+                    valRef={enzymesRef}
                     rate={rates.enzymes} 
                     color="text-orange-500" 
                     subColor="text-orange-900"
                   />
                   <ResourceItem 
                     label="DNA" 
-                    value={globalState.resources.dna} 
+                    initialVal={globalState.resources.dna}
+                    valRef={dnaRef}
                     rate={rates.dna} 
                     color="text-blue-400" 
                     subColor="text-blue-900"
                   />
                    <ResourceItem 
                     label="Larva" 
-                    value={globalState.resources.larva} 
+                    initialVal={globalState.resources.larva}
+                    valRef={larvaRef}
                     rate={rates.larva} 
                     color="text-pink-400" 
                     subColor="text-pink-900"
@@ -171,9 +203,8 @@ const App: React.FC = () => {
                {/* Population */}
                <div className="text-right">
                    <div className="text-[10px] text-gray-500 uppercase">Swarm Size</div>
-                   <div className="text-lg font-mono font-bold text-orange-400 leading-none">
-                        {globalState.hive.unitStockpile[UnitType.MELEE] + globalState.hive.unitStockpile[UnitType.RANGED]}
-                        <span className="text-xs text-gray-600 ml-1">/ {DataManager.instance.getMaxPopulationCap()}</span>
+                   <div ref={swarmRef} className="text-lg font-mono font-bold text-orange-400 leading-none">
+                        {globalState.hive.unitStockpile[UnitType.MELEE] + globalState.hive.unitStockpile[UnitType.RANGED]} / {DataManager.instance.getMaxPopulationCap()}
                    </div>
                </div>
           </div>

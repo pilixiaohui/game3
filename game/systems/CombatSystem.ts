@@ -1,4 +1,3 @@
-
 import { IGameEngine, IUnit, Faction, StatusType, ObstacleDef } from '../../types';
 import { UnitPool, Unit } from '../Unit';
 import { SpatialHash } from '../SpatialHash';
@@ -139,7 +138,11 @@ export class CombatSystem {
     }
 
     private checkWallCollision(x: number, y: number, r: number): ObstacleDef | null {
+        // Optimization: Broad Phase Check
+        // Only check obstacles within a reasonable X distance
         for (const obs of this.levelManager.activeObstacles) {
+            if (Math.abs(obs.x - x) > 150) continue; // Skip far obstacles
+
             if (obs.type === 'WALL') {
                if (x + r > obs.x - obs.width/2 && x - r < obs.x + obs.width/2 &&
                    y > LANE_Y + obs.y - obs.height && y < LANE_Y + obs.y) return obs;
