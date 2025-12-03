@@ -117,6 +117,7 @@ export class CombatSystem {
         if (wallHit) {
             nextX = u.x; 
             if (u.faction === Faction.ZERG) {
+                 u.state = 'ATTACK';
                  u.attackCooldown -= dt;
                  if (u.attackCooldown <= 0) {
                      u.attackCooldown = u.stats.attackSpeed;
