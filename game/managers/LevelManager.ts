@@ -66,7 +66,7 @@ export class LevelManager {
         }));
         
         // Strictly event-driven update
-        this.events.emit('TERRAIN_CHANGED', this.activeObstacles);
+        this.events.emit('TERRAIN_UPDATE', this.activeObstacles);
         
         // Spawn Enemies
         template.spawnPoints.forEach(sp => {
@@ -85,7 +85,7 @@ export class LevelManager {
         obs.health -= dmg;
         if (obs.health <= 0) {
             this.activeObstacles = this.activeObstacles.filter(o => o !== obs);
-            this.events.emit('TERRAIN_CHANGED', this.activeObstacles);
+            this.events.emit('TERRAIN_UPDATE', this.activeObstacles);
             return true;
         }
         return false;
