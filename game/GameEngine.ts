@@ -51,7 +51,7 @@ export class GameEngine implements IGameEngine {
     this.unitPool = new UnitPool(1500, this.renderer);
     
     // Initialize Systems
-    this.levelManager = new LevelManager(this.renderer, this.unitPool);
+    this.levelManager = new LevelManager(this.renderer, this.unitPool, this.events);
     this.combatSystem = new CombatSystem(this, this.unitPool, this.spatialHash, this.levelManager);
     this.harvestSystem = new HarvestSystem(this.unitPool, this.renderer);
     this.hiveVisualSystem = new HiveVisualSystem(this.unitPool, this.renderer);
@@ -121,6 +121,7 @@ export class GameEngine implements IGameEngine {
     const dt = delta / 60; 
 
     // UNIFIED HEARTBEAT: Only the Authority drives the Data Manager
+    // This logic is correct: UndergroundView (Auth=true) drives economy.
     if (this.isSimulationAuthority) {
         DataManager.instance.updateTick(dt);
     }
@@ -135,11 +136,10 @@ export class GameEngine implements IGameEngine {
         this.renderer.updateParticles(dt);
         return;
     } else if (this.mode === 'COMBAT_VIEW') {
-        // If we are NOT the authority (unlikely for Combat View, but good practice), we shouldn't run logic that mutates state
-        if (this.isSimulationAuthority) {
-            this.combatSystem.update(dt);
-            this.levelManager.update(dt, this.unitPool?.getActiveUnits() || []);
-        }
+        // FIXED: Combat logic MUST run regardless of Authority. 
+        // Previously, this was deadlocked because SurfaceView has Authority=false.
+        this.combatSystem.update(dt);
+        this.levelManager.update(dt, this.unitPool?.getActiveUnits() || []);
     }
 
     // Visual Updates (Run on both engines)

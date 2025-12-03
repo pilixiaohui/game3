@@ -1,5 +1,5 @@
 
-import { DataManager } from '../DataManager';
+import { DataManager, SimpleEventEmitter } from '../DataManager';
 import { UnitPool } from '../Unit';
 import { WorldRenderer } from '../renderers/WorldRenderer';
 import { ObstacleDef, RegionData, Faction, UnitType } from '../../types';
@@ -14,10 +14,12 @@ export class LevelManager {
     
     private renderer: WorldRenderer;
     private unitPool: UnitPool;
+    private events: SimpleEventEmitter;
 
-    constructor(renderer: WorldRenderer, unitPool: UnitPool) {
+    constructor(renderer: WorldRenderer, unitPool: UnitPool, events: SimpleEventEmitter) {
         this.renderer = renderer;
         this.unitPool = unitPool;
+        this.events = events;
     }
 
     public loadRegion(regionId: number) {
@@ -67,7 +69,8 @@ export class LevelManager {
             health: def.health 
         }));
         
-        this.renderer.drawTerrain(this.activeObstacles);
+        // Decoupled Draw
+        this.events.emit('TERRAIN_UPDATED', this.activeObstacles);
         
         // Spawn Enemies
         template.spawnPoints.forEach(sp => {
@@ -86,7 +89,7 @@ export class LevelManager {
         obs.health -= dmg;
         if (obs.health <= 0) {
             this.activeObstacles = this.activeObstacles.filter(o => o !== obs);
-            this.renderer.drawTerrain(this.activeObstacles);
+            this.events.emit('TERRAIN_UPDATED', this.activeObstacles);
             return true;
         }
         return false;

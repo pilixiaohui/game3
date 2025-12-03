@@ -1,5 +1,4 @@
 
-
 import { Application, Container, Graphics, TilingSprite, Text, TextStyle } from 'pixi.js';
 import { IUnit, ObstacleDef, UnitType, Faction, IFxEvent } from '../../types';
 import { LANE_Y, UNIT_CONFIGS, ELEMENT_COLORS } from '../../constants';
@@ -66,6 +65,7 @@ export class WorldRenderer {
 
         // Listen for FX Events
         events.on('FX', this.handleFxEvent.bind(this));
+        events.on('TERRAIN_UPDATED', (obstacles: ObstacleDef[]) => this.drawTerrain(obstacles));
     }
 
     private handleFxEvent(e: IFxEvent) {
