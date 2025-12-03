@@ -14,6 +14,7 @@ export class LevelManager {
     
     private unitPool: UnitPool;
     private events: SimpleEventEmitter;
+    private lastGeneratedStage: number = -1;
 
     constructor(unitPool: UnitPool, events: SimpleEventEmitter) {
         this.unitPool = unitPool;
@@ -41,7 +42,13 @@ export class LevelManager {
             if (u.faction === Faction.HUMAN) this.unitPool.recycle(u);
         });
 
-        this.generateTerrain(this.currentStageIndex);
+        // Reset Terrain State for the new region
+        this.activeObstacles = [];
+        this.lastGeneratedStage = -1;
+
+        // Pre-generate current and next stage to ensure visibility
+        this.generateChunk(this.currentStageIndex);
+        this.generateChunk(this.currentStageIndex + 1);
     }
 
     public update(dt: number, activeUnits: any[]) {
@@ -68,31 +75,53 @@ export class LevelManager {
         if (targetX > limitX - 200) targetX = limitX - 200;
         
         this.cameraX += (targetX - this.cameraX) * 0.1;
+
+        // --- ENDLESS GENERATION LOGIC ---
+        // Determine the stage index at the right edge of the screen (approx cameraX + width)
+        const lookAheadStage = Math.floor((this.cameraX + STAGE_WIDTH) / STAGE_WIDTH);
+        
+        // If we are looking into a stage that hasn't been generated yet, generate it.
+        // We typically generate one step ahead of the last generated one to keep continuity.
+        if (lookAheadStage > this.lastGeneratedStage) {
+            this.generateChunk(this.lastGeneratedStage + 1);
+        }
     }
 
-    public generateTerrain(stageIndex: number) {
+    public generateChunk(stageIndex: number) {
+        // Prevent duplicate generation
+        if (stageIndex <= this.lastGeneratedStage && this.lastGeneratedStage !== -1) return;
+        
+        this.lastGeneratedStage = stageIndex;
+
         const templates = TERRAIN_CHUNKS['DEFAULT'] || [];
         const template = templates[stageIndex % templates.length];
         const stageOffsetX = stageIndex * STAGE_WIDTH;
         
-        this.activeObstacles = template.obstacles.map(def => ({ 
+        // Create new obstacles with offset
+        const newObstacles = template.obstacles.map(def => ({ 
             ...def, 
             x: def.x + stageOffsetX, 
             maxHealth: def.health, 
             health: def.health 
         }));
         
+        // Append to active obstacles (Endless)
+        this.activeObstacles.push(...newObstacles);
+        
         // Notify renderer via event
         this.events.emit('TERRAIN_UPDATE', this.activeObstacles);
         
         // Spawn Enemies
+        // Calculate dynamic difficulty: Base for region + distance scaling
+        const difficultyLevel = (this.activeRegionId * 5) + stageIndex;
+
         template.spawnPoints.forEach(sp => {
             this.unitPool.spawn(
                 Faction.HUMAN, 
                 sp.type as UnitType, 
                 sp.x + stageOffsetX, 
                 DataManager.instance.modifiers, 
-                stageIndex + 5
+                difficultyLevel
             );
         });
     }
