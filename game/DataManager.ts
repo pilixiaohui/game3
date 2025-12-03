@@ -1,7 +1,7 @@
 
-
 import { GameSaveData, UnitType, UnitRuntimeStats, Resources, GameModifiers, BioPluginConfig, PluginInstance, ElementType } from '../types';
 import { INITIAL_GAME_STATE, UNIT_CONFIGS, UNIT_UPGRADE_COST_BASE, RECYCLE_REFUND_RATE, METABOLISM_FACILITIES, MAX_RESOURCES_BASE, BIO_PLUGINS, CAP_UPGRADE_BASE, EFFICIENCY_UPGRADE_BASE, QUEEN_UPGRADE_BASE, INITIAL_LARVA_CAP, CLICK_CONFIG, INITIAL_REGIONS_CONFIG } from '../constants';
+import { MetabolismSystem } from './systems/MetabolismSystem';
 
 export type Listener = (data: any) => void;
 
@@ -45,9 +45,12 @@ export class DataManager {
         doubleSpawnChance: 0.0,
     };
 
+    private metabolismSystem: MetabolismSystem;
+
     private constructor() {
         this.events = new SimpleEventEmitter();
         this.state = JSON.parse(JSON.stringify(INITIAL_GAME_STATE));
+        this.metabolismSystem = new MetabolismSystem();
         this.loadGame();
         this.autoSaveInterval = setInterval(() => this.saveGame(), 30000);
         
@@ -132,7 +135,7 @@ export class DataManager {
     }
 
     public updateTick(dt: number) {
-        this.updateMetabolism(dt); 
+        this.metabolismSystem.update(dt, this); 
         this.updateQueen(dt);      
         const queenStats = this.getQueenStats();
         const queenCount = this.state.hive.unitStockpile[UnitType.QUEEN] || 0;
@@ -174,147 +177,6 @@ export class DataManager {
     }
 
     public getRecycleRate(): number { return 0.5; }
-
-    private updateMetabolism(dt: number) {
-        const meta: any = this.state.hive.metabolism;
-        const res = this.state.resources;
-        const conf = METABOLISM_FACILITIES;
-        
-        // Prestige Bonus: Metabolism Surge
-        const surgeLevel = this.state.player.mutationUpgrades?.metabolicSurge || 0;
-        const globalMultiplier = 1 + (surgeLevel * 0.5); // +50% per level
-
-        let bioRate = 0;
-        let enzRate = 0;
-        let dnaRate = 0;
-
-        const clusterMult = Math.pow(1.25, Math.floor(meta.villiCount / 100));
-        const villiBase = conf.VILLI.BASE_RATE + (meta.taprootCount * conf.TAPROOT.BONUS_TO_VILLI);
-        bioRate += meta.villiCount * villiBase * clusterMult;
-        bioRate += meta.geyserCount * conf.GEYSER.BASE_RATE;
-        bioRate += meta.breakerCount * conf.BREAKER.BASE_RATE;
-
-        if (res.biomass > 5000) bioRate -= res.biomass * meta.breakerCount * conf.BREAKER.LOSS_RATE;
-
-        const kills = (this.state.player as any).totalKills || 0; 
-        bioRate += (meta.necroSiphonCount || 0) * (conf.NECRO_SIPHON.BASE_RATE + kills * conf.NECRO_SIPHON.KILL_SCALAR);
-        bioRate += (meta.redTideCount || 0) * conf.RED_TIDE.BASE_RATE * (1 + (meta.villiCount / 50));
-
-        if (meta.gaiaDigesterCount > 0) {
-            bioRate += meta.gaiaDigesterCount * conf.GAIA_DIGESTER.COEFF * Math.pow(Math.max(1, res.biomass), conf.GAIA_DIGESTER.POW_FACTOR);
-        }
-
-        // Apply Global Multiplier
-        bioRate *= globalMultiplier;
-        this.modifyResource('biomass', bioRate * dt);
-
-        if (meta.fermentingSacCount > 0) {
-            let cost = conf.SAC.INPUT - (meta.refluxPumpCount * conf.PUMP.COST_REDUCTION);
-            cost = Math.max(conf.PUMP.MIN_COST, cost);
-            const maxInput = meta.fermentingSacCount * cost * dt;
-            const consumed = Math.min(maxInput, res.biomass);
-            if (consumed > 0) {
-                const consumptionRate = consumed / dt;
-                bioRate -= consumptionRate;
-                const productionRate = (consumptionRate / cost) * conf.SAC.OUTPUT;
-                enzRate += productionRate;
-                this.modifyResource('biomass', -consumed);
-                this.modifyResource('enzymes', productionRate * dt * globalMultiplier);
-            }
-        }
-
-        if (meta.thermalCrackerCount > 0) {
-            if (!meta.crackerOverheated) {
-                 const inputNeeded = meta.thermalCrackerCount * conf.CRACKER.INPUT * dt;
-                 if (res.biomass >= inputNeeded) {
-                     bioRate -= inputNeeded / dt;
-                     const productionRate = meta.thermalCrackerCount * conf.CRACKER.OUTPUT;
-                     enzRate += productionRate;
-                     this.modifyResource('biomass', -inputNeeded);
-                     this.modifyResource('enzymes', productionRate * dt * globalMultiplier);
-                     meta.crackerHeat += conf.CRACKER.HEAT_GEN * dt;
-                     if (meta.crackerHeat >= 100) { meta.crackerHeat = 100; meta.crackerOverheated = true; }
-                 } else {
-                     meta.crackerHeat = Math.max(0, meta.crackerHeat - conf.CRACKER.COOL_RATE * dt);
-                 }
-            } else {
-                 meta.crackerHeat -= conf.CRACKER.COOL_RATE * dt;
-                 if (meta.crackerHeat <= 0) { meta.crackerHeat = 0; meta.crackerOverheated = false; }
-            }
-        }
-        
-        if (meta.fleshBoilerCount > 0) {
-            const larvaNeeded = meta.fleshBoilerCount * conf.BOILER.INPUT_LARVA * dt;
-            if (res.larva >= larvaNeeded) {
-                const productionRate = meta.fleshBoilerCount * conf.BOILER.OUTPUT_ENZ;
-                enzRate += productionRate;
-                this.modifyResource('larva', -larvaNeeded);
-                this.modifyResource('enzymes', productionRate * dt * globalMultiplier);
-            }
-        }
-
-        if ((meta.bloodFusionCount || 0) > 0) {
-            const meleeStock = this.state.hive.unitStockpile['MELEE'] || 0;
-            const eatChance = (meta.bloodFusionCount || 0) * 1.0 * dt;
-            if (meleeStock >= 1 && Math.random() < eatChance) {
-                this.state.hive.unitStockpile['MELEE']--;
-                this.modifyResource('enzymes', conf.BLOOD_FUSION.OUTPUT_ENZ * globalMultiplier);
-                this.events.emit('STOCKPILE_CHANGED', this.state.hive.unitStockpile);
-            }
-        }
-
-        if ((meta.synapticResonatorCount || 0) > 0) {
-            const totalPop = this.getTotalStockpile();
-            const resGen = (meta.synapticResonatorCount || 0) * Math.sqrt(totalPop) * conf.RESONATOR.POP_SCALAR * dt;
-            enzRate += resGen / dt;
-            this.modifyResource('enzymes', resGen * globalMultiplier);
-        }
-
-        if ((meta.entropyVentCount || 0) > 0) {
-            const burnAmount = res.biomass * conf.ENTROPY_VENT.BURN_RATE * dt;
-            if (burnAmount > 0) {
-                bioRate -= burnAmount / dt;
-                const gainRate = (burnAmount / dt) * conf.ENTROPY_VENT.CONVERT_RATIO;
-                enzRate += gainRate;
-                this.modifyResource('biomass', -burnAmount);
-                this.modifyResource('enzymes', gainRate * dt * globalMultiplier);
-            }
-        }
-
-        if (meta.thoughtSpireCount > 0) {
-             const spireRate = meta.thoughtSpireCount * conf.SPIRE.BASE_RATE;
-             dnaRate += spireRate;
-             meta.spireAccumulator += spireRate * dt * globalMultiplier;
-             if (meta.spireAccumulator >= 1) {
-                 const drop = Math.floor(meta.spireAccumulator);
-                 meta.spireAccumulator -= drop;
-                 this.modifyResource('dna', drop);
-             }
-        }
-        
-        if (meta.hiveMindCount > 0) {
-            const totalPop = this.getTotalStockpile();
-            const hiveGen = meta.hiveMindCount * Math.sqrt(Math.max(1, totalPop)) * conf.HIVE_MIND.SCALAR * dt;
-            dnaRate += hiveGen / dt;
-            this.modifyResource('dna', hiveGen * globalMultiplier);
-        }
-
-        if ((meta.combatCortexCount || 0) > 0) {
-             const melee = this.state.hive.unitStockpile['MELEE'] || 0;
-             const cortexGen = (meta.combatCortexCount || 0) * (melee * 0.1) * conf.COMBAT_CORTEX.BASE_RATE * dt;
-             dnaRate += cortexGen / dt;
-             this.modifyResource('dna', cortexGen * globalMultiplier);
-        }
-
-        if (meta.akashicRecorderCount > 0 && Math.random() < conf.RECORDER.CHANCE * dt) {
-             const bonus = Math.floor(res.dna * conf.RECORDER.PERCENT);
-             if (bonus > 0) this.modifyResource('dna', bonus);
-        }
-
-        this.rates.biomass = bioRate;
-        this.rates.enzymes = enzRate;
-        this.rates.dna = dnaRate;
-    }
     
     private updateQueen(dt: number) {
         const prod = this.state.hive.production;
@@ -529,7 +391,7 @@ export class DataManager {
         this.state.hive.inventory.plugins = keptPlugins;
         this.state.player.prestigeLevel = newPrestigeLevel;
         this.state.player.mutationUpgrades = keptUpgrades;
-        this.state.player.lifetimeDna = 0; // Reset lifetime counter for next run? Or keep? Design doc implies resets "progress", usually lifetime counters for next run start from 0 relative to new run or cumulative. Design formula is just lifetime. Let's reset to avoid double dipping.
+        this.state.player.lifetimeDna = 0; 
 
         // Genetic Memory: Start with Sac
         if (keptUpgrades.geneticMemory) {
@@ -623,7 +485,7 @@ export class DataManager {
         const lvlMultDmg = 1 + (save.level - 1) * config.growthFactors.damage;
         const runMultHp = mods.maxHpMultiplier;
         const runMultDmg = mods.damageMultiplier;
-        const mutagenMult = 1; // Mutagen now used for Upgrades, not flat stat multiplier
+        const mutagenMult = 1; 
         
         let pluginMultHp = 0, pluginMultDmg = 0, pluginMultSpeed = 0, pluginMultAttackSpeed = 0, pluginFlatCritChance = 0, pluginMultCritChance = 0, pluginMultCritDmg = 0;
         let element: ElementType = config.elementConfig?.type || 'PHYSICAL'; 
