@@ -1,5 +1,4 @@
 
-
 import { GeneTrait, IUnit, ElementType, IGameEngine, StatusType, Faction, UnitType } from '../types';
 import { ELEMENT_COLORS, STATUS_CONFIG, UNIT_CONFIGS } from '../constants';
 
@@ -27,8 +26,6 @@ export class StatusRegistry {
     }
     
     static getVisual(target: IUnit): number | null {
-        // Iterate statuses to find highest priority visual?
-        // Simple first-match for now
         for(const type in target.statuses) {
             if (this.visualTints[type as StatusType]) {
                 return this.visualTints[type as StatusType]!;
@@ -50,10 +47,8 @@ StatusRegistry.registerVisual('POISONED', 0x4ade80);
 
 StatusRegistry.registerVisual('FROZEN', 0x60a5fa);
 StatusRegistry.registerVisual('SHOCKED', 0xfacc15);
-
-// New Status Visuals
-StatusRegistry.registerVisual('FRENZY', 0xff00ff); // Magenta for Zerg Rage
-StatusRegistry.registerVisual('SLOWED', 0x555555); // Grey for Fear/Slow
+StatusRegistry.registerVisual('FRENZY', 0xff00ff);
+StatusRegistry.registerVisual('SLOWED', 0x555555);
 
 // --- ELEMENTAL REACTION REGISTRY ---
 type ReactionHandler = (target: IUnit, engine: IGameEngine, damage: number) => void;
@@ -116,14 +111,14 @@ export class GeneLibrary {
 }
 
 // ==========================================
-// A. 攻击增强类 (Attack Modifiers)
+// A. ATTACK MODIFIERS
 // ==========================================
 
 GeneLibrary.register({
     id: 'GENE_VAMPIRIC',
     name: '吸血',
     onHit: (self, target, damage, engine, params) => {
-        const ratio = params.ratio || 0.3; // Default 30%
+        const ratio = params.ratio || 0.3;
         if (self.stats.hp < self.stats.maxHp && !self.isDead) {
             const heal = damage * ratio;
             self.stats.hp = Math.min(self.stats.maxHp, self.stats.hp + heal);
@@ -136,7 +131,7 @@ GeneLibrary.register({
     id: 'GENE_EXECUTE',
     name: '斩杀',
     onHit: (self, target, damage, engine, params) => {
-        const threshold = params.threshold || 0.3; // 30% HP
+        const threshold = params.threshold || 0.3;
         const mult = params.multiplier || 2.0;
         
         if ((target.stats.hp / target.stats.maxHp) < threshold) {
@@ -173,14 +168,12 @@ GeneLibrary.register({
         const neighbors = engine._sharedQueryBuffer;
         const count = engine.spatialHash.query(target.x, target.y, range, neighbors);
         
-        // Preserve original damage to prevent mutation
         const originalDmg = self.stats.damage;
         self.stats.damage = originalDmg * ratio;
         
         for(let i=0; i<count; i++) {
             const u = neighbors[i];
             if (u !== target && u !== self && u.faction !== self.faction && !u.isDead) {
-                // Use pipeline to apply status effects
                 engine.processDamagePipeline(self, u);
             }
         }
@@ -194,14 +187,13 @@ GeneLibrary.register({
     id: 'GENE_CHAIN_ARC',
     name: '连锁电弧',
     onHit: (self, target, damage, engine, params) => {
-        // Multi-bounce Logic
         const currentDepth = self.context.chainDepth || 0;
-        const maxDepth = params.maxDepth || 3; // Bounce up to 3 times
+        const maxDepth = params.maxDepth || 3; 
 
         if (currentDepth >= maxDepth) return;
 
         const range = params.range || 180;
-        const decay = params.decay || 0.7; // Damage decays by 30% per bounce
+        const decay = params.decay || 0.7; 
         
         const neighbors = engine._sharedQueryBuffer;
         const count = engine.spatialHash.query(target.x, target.y, range, neighbors);
@@ -211,21 +203,16 @@ GeneLibrary.register({
         
         for(let i=0; i<count; i++) {
             const u = neighbors[i];
-            // Valid Target: Not self, not current target, enemy faction, alive
             if (u !== target && u !== self && u.faction !== self.faction && !u.isDead) {
-                // Prevent bouncing back to the immediate previous target to avoid A<->B infinite loop
                 if (u.id === self.context.prevChainTargetId) continue;
-
                 const d = (u.x - target.x)**2 + (u.y - target.y)**2;
                 if (d < minDist) { minDist = d; nextTarget = u; }
             }
         }
         
         if (nextTarget) {
-            // Visuals
             engine.events.emit('FX', { type: 'PROJECTILE', x: target.x, y: target.y, x2: nextTarget.x, y2: nextTarget.y, color: 0xfacc15 });
             
-            // State Management for Recursion
             self.context.chainDepth = currentDepth + 1;
             const prevId = self.context.prevChainTargetId;
             self.context.prevChainTargetId = target.id;
@@ -233,15 +220,12 @@ GeneLibrary.register({
             const originalDmg = self.stats.damage;
             self.stats.damage = originalDmg * decay;
             
-            // Recursively trigger pipeline (which calls onHit -> GENE_CHAIN_ARC again)
             engine.processDamagePipeline(self, nextTarget);
             
-            // Restore State
             self.stats.damage = originalDmg;
             self.context.chainDepth = currentDepth;
             self.context.prevChainTargetId = prevId;
         } else {
-            // End of chain cleanup (optional, context is per-unit but transient enough in logic)
             self.context.chainDepth = 0;
             self.context.prevChainTargetId = -1;
         }
@@ -262,15 +246,13 @@ GeneLibrary.register({
     onKill: (self, victim, engine, params) => {
         const healPct = params.heal || 0.1;
         self.stats.hp = Math.min(self.stats.maxHp, self.stats.hp + self.stats.maxHp * healPct);
-        
-        // Reset attack cooldown for immediate strike
         self.attackCooldown = 0;
         engine.events.emit('FX', { type: 'TEXT', x: self.x, y: self.y - 40, text: "RAMPAGE!", color: 0xff00ff, fontSize: 16 });
     }
 });
 
 // ==========================================
-// B. 生存与防御类 (Survival & Defense)
+// B. SURVIVAL & DEFENSE
 // ==========================================
 
 GeneLibrary.register({
@@ -348,32 +330,31 @@ GeneLibrary.register({
     name: '狂战之血',
     onTick: (self, dt, engine, params) => {
         if (!self.context.baseDmg) self.context.baseDmg = self.stats.damage;
-        
         const missingPct = 1 - (self.stats.hp / self.stats.maxHp);
         self.stats.damage = self.context.baseDmg * (1 + missingPct);
     }
 });
 
 // ==========================================
-// C. 战术与移动类 (Tactics)
+// C. TACTICS & MOVEMENT
 // ==========================================
 
 GeneLibrary.register({
     id: 'GENE_BURROW_HEAL',
     name: '潜地愈合',
     onTick: (self, dt, engine, params) => {
-        // Allows healing in Stockpile (WANDER) or Combat Idle
         if (self.state === 'IDLE' || self.state === 'WANDER') {
             self.context.idleTime = (self.context.idleTime || 0) + dt;
             if (self.context.idleTime > 2.0) {
                 // Heal fast
                 self.stats.hp = Math.min(self.stats.maxHp, self.stats.hp + self.stats.maxHp * 0.1 * dt);
                 if (Math.random() < 0.05) engine.events.emit('FX', { type: 'HEAL', x: self.x, y: self.y });
-                if (self.view) self.view.alpha = 0.5; // Visual stealth
+                // Logic: Mark as burrowed. Renderer will handle alpha.
+                self.context.isBurrowed = true;
             }
         } else {
             self.context.idleTime = 0;
-            if (self.view) self.view.alpha = 1.0;
+            self.context.isBurrowed = false;
         }
     }
 });
@@ -388,8 +369,6 @@ GeneLibrary.register({
         } else if (self.target && !self.target.isDead) {
             const distSq = (self.target.x - self.x)**2 + (self.target.y - self.y)**2;
             const engageRange = 300 * 300;
-            
-            // If out of range but close enough to charge
             if (distSq > self.stats.range * self.stats.range && distSq < engageRange) {
                 const speedMult = params.speedMult || 3.0;
                 velocity.x *= speedMult;
@@ -405,13 +384,13 @@ GeneLibrary.register({
     id: 'GENE_GHOST_WALK',
     name: '幽灵漫步',
     onMove: (self, velocity, dt, engine, params) => {
-        // Just purely visual flying bob, physics ignored by not having GENE_BOIDS or careful layering
-        if (self.view) self.view.y += Math.sin(Date.now() / 200) * 0.5;
+        // Logic: Mark as ghosting. Renderer handles bobbing.
+        self.context.isGhosting = true;
     }
 });
 
 // ==========================================
-// D. 光环与控制类 (Auras)
+// D. AURAS & CONTROL
 // ==========================================
 
 GeneLibrary.register({
@@ -429,8 +408,7 @@ GeneLibrary.register({
         for(let i=0; i<count; i++) {
             const u = neighbors[i];
             if (u.faction === self.faction) {
-                // Apply FRENZY Status (Handled in processDamagePipeline for +25% DMG)
-                engine.applyStatus(u, 'FRENZY', 1, 0.6); // Duration covers tick interval
+                engine.applyStatus(u, 'FRENZY', 1, 0.6); 
                 if (Math.random() < 0.1) engine.events.emit('FX', { type: 'PARTICLES', x: u.x, y: u.y, color: 0xff00ff, count: 1 });
             }
         }
@@ -452,7 +430,6 @@ GeneLibrary.register({
         for(let i=0; i<count; i++) {
             const u = neighbors[i];
             if (u.faction !== self.faction && !u.isDead) {
-                // Apply SLOWED Status
                 engine.applyStatus(u, 'SLOWED', 1, 0.6);
                 if (Math.random() < 0.1) engine.events.emit('FX', { type: 'TEXT', x: u.x, y: u.y - 10, text: "FEAR", color: 0x880000, fontSize: 8 });
             }
@@ -502,11 +479,8 @@ GeneLibrary.register({
 
         if (target) {
             target.stats.hp = Math.min(target.stats.maxHp, target.stats.hp + healAmount);
-            
-            // Visual
             if (Math.random() < 0.2) {
                  engine.events.emit('FX', { type: 'HEAL', x: target.x, y: target.y });
-                 // Green Beam
                  engine.events.emit('FX', { type: 'PROJECTILE', x: self.x, y: self.y - 10, x2: target.x, y2: target.y - 10, color: 0x00ff00 }); 
             }
         }
@@ -514,7 +488,7 @@ GeneLibrary.register({
 });
 
 // ==========================================
-// E. 召唤与特殊类 (Special)
+// E. SPECIAL
 // ==========================================
 
 GeneLibrary.register({
@@ -537,11 +511,7 @@ GeneLibrary.register({
     onTick: (self, dt, engine, params) => {
         if (self.context.detonating) {
              self.context.detonateTimer = (self.context.detonateTimer || 0) + dt;
-             if (self.view) {
-                 const t = Math.sin(Date.now() / 50); // Fast pulse
-                 self.view.tint = t > 0 ? 0xff0000 : 0xffffff;
-                 self.view.scale.set(1.0 + self.context.detonateTimer); // Swell
-             }
+             // Logic: Just update timer. Renderer handles tint/scale based on timer.
              if (self.context.detonateTimer >= 0.5) {
                  engine.killUnit(self);
              }
@@ -552,21 +522,19 @@ GeneLibrary.register({
             self.context.detonating = true;
             self.context.detonateTimer = 0;
         }
-        return false; // Cancel attack
+        return false;
     }
 });
 
-// --- STANDARD GENES (Existing) ---
+// --- STANDARD GENES ---
 
 GeneLibrary.register({
     id: 'GENE_ACQUIRE_TARGET',
     name: 'Targeting System',
-    // Refactored to handle its own validation and spatial query
     onUpdateTarget: (self, dt, engine, params) => {
         const range = params.range || 600;
         const rangeSq = range * range;
 
-        // 1. Validation
         if (self.target) {
             const t = self.target;
             if (t.isDead || !t.active) {
@@ -579,10 +547,8 @@ GeneLibrary.register({
             }
         }
 
-        // 2. Acquisition
         if (!self.target) {
              const potentialTargets = engine._sharedQueryBuffer;
-             // Query spatial hash directly from Gene
              const count = engine.spatialHash.query(self.x, self.y, range, potentialTargets);
              
              let bestDist = rangeSq;
@@ -610,9 +576,7 @@ GeneLibrary.register({
     id: 'GENE_AUTO_ATTACK',
     name: 'Auto Attack Trigger',
     onTick: (self, dt, engine, params) => {
-        // Status Check: Stunned/Shocked
         if ((self.statuses['SHOCKED'] || self.statuses['STUNNED']) && Math.random() < 0.5) return;
-
         if (self.attackCooldown > 0) {
             self.attackCooldown -= dt;
         }
@@ -621,18 +585,13 @@ GeneLibrary.register({
             const distSq = (self.target.x - self.x)**2 + (self.target.y - self.y)**2;
             const rangeSq = self.stats.range * self.stats.range;
             
-            // Check Range
             if (distSq <= rangeSq) {
                 self.state = 'ATTACK';
-                
-                // Trigger Attack
                 if (self.attackCooldown <= 0) {
-                    // Reset cooldown (attackSpeed is actually Cooldown Time in current data model)
                     self.attackCooldown = self.stats.attackSpeed; 
                     engine.performAttack(self, self.target);
                 }
             } else {
-                // Out of range, return to IDLE (so Movement gene can pick it up)
                 if (self.state === 'ATTACK') self.state = 'IDLE';
             }
         } else {
@@ -658,7 +617,6 @@ GeneLibrary.register({
     onPreAttack: (self, target, engine, params) => {
         const color = params.projectileColor || ELEMENT_COLORS[self.stats.element] || 0xffffff;
         engine.events.emit('FX', { type: 'PROJECTILE', x: self.x, y: self.y - 15, x2: target.x, y2: target.y - 15, color });
-        // Instant damage for responsiveness, projectile is visual
         engine.processDamagePipeline(self, target);
         return false; 
     }
@@ -670,7 +628,6 @@ GeneLibrary.register({
     onPreAttack: (self, target, engine, params) => {
         const color = params.color || ELEMENT_COLORS[self.stats.element] || 0xff7777;
         engine.events.emit('FX', { type: 'PROJECTILE', x: self.x, y: self.y - (params.arcHeight || 20), x2: target.x, y2: target.y, color }); 
-        // Instant damage, arc is visual
         engine.processDamagePipeline(self, target);
         return false;
     }
@@ -725,8 +682,6 @@ GeneLibrary.register({
         if (self.stats.hp < self.stats.maxHp && !self.isDead) {
             self.stats.hp += self.stats.maxHp * rate * dt; 
             if (self.stats.hp > self.stats.maxHp) self.stats.hp = self.stats.maxHp;
-            
-            // Visual
             if (Math.random() < 0.05) engine.events.emit('FX', { type: 'HEAL', x: self.x, y: self.y });
         }
     }
@@ -757,32 +712,26 @@ GeneLibrary.register({
     name: 'Idle Wander',
     onMove: (self, velocity, dt, engine, params) => {
         if ((self.statuses['SHOCKED'] || self.statuses['STUNNED']) && Math.random() < 0.05) return;
-
         self.wanderTimer -= dt;
         if (self.wanderTimer <= 0) { 
             self.wanderTimer = 1 + Math.random() * 2; 
             self.wanderDir = Math.random() > 0.5 ? 1 : -1; 
         }
-
-        // Apply SLOWED effect
         const speedMult = self.statuses['SLOWED'] ? 0.5 : 1.0;
-        
         velocity.x += self.wanderDir * self.stats.speed * 0.3 * speedMult * dt;
         velocity.y += (Math.random() - 0.5) * 0.5;
-        
         self.state = 'WANDER';
     }
 });
 
 GeneLibrary.register({
     id: 'GENE_COMBAT_MOVEMENT',
-    name: 'Combat Movement (Chase/March)',
+    name: 'Combat Movement',
     onMove: (self, velocity, dt, engine, params) => {
         if (self.state === 'ATTACK') return;
         if ((self.statuses['SHOCKED'] || self.statuses['STUNNED']) && Math.random() < 0.05) return;
 
         let isMoving = false;
-        // Apply SLOWED effect
         const speedMult = self.statuses['SLOWED'] ? 0.5 : 1.0;
         const moveMult = params.multiplier || 1.0;
 
@@ -831,7 +780,6 @@ GeneLibrary.register({
             
             let forceX = 0;
             let forceY = 0;
-            
             let centerX = 0;
             let centerY = 0;
             let neighborCount = 0;
@@ -847,11 +795,9 @@ GeneLibrary.register({
                 if (distSq < sepRadius * sepRadius && distSq > 0.001) {
                     const dist = Math.sqrt(distSq);
                     const repulsionStrength = Math.min(500, 1000 / (dist + 0.1));
-                    
                     forceX += (dx / dist) * repulsionStrength * sepForceConfig * 0.01;
                     forceY += (dy / dist) * repulsionStrength * sepForceConfig * 0.01;
                 }
-
                 centerX += friend.x;
                 centerY += friend.y;
                 neighborCount++;
@@ -862,12 +808,10 @@ GeneLibrary.register({
                 centerY /= neighborCount;
                 forceX += (centerX - self.x) * cohWeight;
                 forceY += (centerY - self.y) * cohWeight;
-                
                 if (self.faction === Faction.ZERG) {
                      forceX += aliWeight * 2.0; 
                 }
             }
-            
             forceX += (Math.random() - 0.5) * 5.0;
             forceY += (Math.random() - 0.5) * 5.0;
 

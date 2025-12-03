@@ -1,5 +1,4 @@
 
-
 import { DataManager, SimpleEventEmitter } from '../DataManager';
 import { UnitPool } from '../Unit';
 import { ObstacleDef, RegionData, Faction, UnitType } from '../../types';
@@ -29,7 +28,7 @@ export class LevelManager {
     }
 
     public update(dt: number, activeUnits: any[]) {
-        // Camera Follow Logic (Simple linear interpolation to the front)
+        // Camera Follow Logic (Logic only, used by Engine to set Renderer prop)
         let targetX = this.cameraX;
         let leadZergX = -99999;
         let zergCount = 0;
@@ -52,7 +51,6 @@ export class LevelManager {
         if (targetX > limitX - 200) targetX = limitX - 200;
         
         this.cameraX += (targetX - this.cameraX) * 0.1;
-        // Camera application is now handled by GameEngine reading `this.cameraX`
     }
 
     public generateTerrain(stageIndex: number) {
@@ -67,7 +65,7 @@ export class LevelManager {
             health: def.health 
         }));
         
-        // Decoupled Draw
+        // Strictly event-driven update
         this.events.emit('TERRAIN_UPDATED', this.activeObstacles);
         
         // Spawn Enemies

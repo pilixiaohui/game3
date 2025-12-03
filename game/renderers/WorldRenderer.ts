@@ -1,5 +1,4 @@
 
-
 import { Application, Container, Graphics, TilingSprite, Text, TextStyle } from 'pixi.js';
 import { IUnit, ObstacleDef, UnitType, Faction, IFxEvent, HarvestNodeDef } from '../../types';
 import { LANE_Y, UNIT_CONFIGS, ELEMENT_COLORS } from '../../constants';
@@ -92,7 +91,6 @@ export class WorldRenderer {
         } else if (e.type === 'PARTICLES') {
             this.createParticles(e.x, e.y, e.color, e.count);
         } else if (e.type === 'HEAL') {
-             // Create text helper
              this.handleFxEvent({ type: 'TEXT', x: e.x, y: e.y - 10, text: '+', color: 0x00ff00, fontSize: 14 });
         } else if (e.type === 'DAMAGE_POP') {
              this.handleFxEvent({ type: 'TEXT', x: e.x, y: e.y - 10, text: e.text, color: e.color, fontSize: e.fontSize });
@@ -218,9 +216,30 @@ export class WorldRenderer {
             hpBar.endFill();
         }
 
+        // --- Visual Context Handling (Replaced Direct Gene Logic) ---
+        
+        // 1. Burrowing (Alpha)
+        if (unit.context.isBurrowed) {
+             view.alpha = 0.5;
+        } else if (!unit.isDead) {
+             view.alpha = 1.0;
+        }
+        
+        // 2. Ghosting (Bobbing)
+        if (unit.context.isGhosting && !unit.isDead) {
+             view.y += Math.sin(Date.now() / 200) * 0.5;
+        }
+        
+        // 3. Detonating (Pulsing)
+        if (unit.context.detonating && !unit.isDead) {
+             const t = Math.sin(Date.now() / 50); 
+             view.tint = t > 0 ? 0xff0000 : 0xffffff;
+             view.scale.set(1.0 + (unit.context.detonateTimer || 0));
+        } else {
+             view.tint = 0xffffff;
+        }
+
         // Draw Carry Bag dynamic update
-        // (Simplified: We rely on `drawUnit` being called once, but for dynamic carry state we might need redraw)
-        // For performance, we'll just check if we need to redraw when state changes, or simple hack:
         // @ts-ignore
         if (unit.context.carryAmount > 0 && !unit.context.visualHasBag) {
             // @ts-ignore
@@ -234,14 +253,14 @@ export class WorldRenderer {
         
         if (unit.isDead) {
             // @ts-ignore
-            view.alpha = 1.0 - (unit.decayTimer / 2.0); // Simple decay time hardcoded for now or passed in
+            view.alpha = 1.0 - (unit.decayTimer / 2.0); 
             view.rotation = Math.PI / 2;
-        } else {
+        } else if (!unit.context.detonating) {
+            // Default breathing animation if not special
             view.y += Math.sin(Date.now() / 200 + unit.id) * 2;
             if (mode === 'COMBAT_VIEW') {
                view.scale.x = (unit.faction === Faction.ZERG) ? 1 : -1;
             } else if (mode === 'HARVEST_VIEW') {
-                 // Face movement direction
                 // @ts-ignore
                  if (unit.steeringForce && unit.steeringForce.x !== 0) {
                      // @ts-ignore
@@ -279,7 +298,6 @@ export class WorldRenderer {
         this.harvestNodeGraphics = [];
         
         if (nodes.length > 0) {
-            // Re-draw central hive depot
             const hive = new Graphics();
             hive.beginFill(0x550055);
             hive.drawCircle(0, 0, 40);
@@ -293,7 +311,6 @@ export class WorldRenderer {
         nodes.forEach(node => {
             const multiplier = node.richness;
             const g = new Graphics(); 
-            // Richer nodes are brighter
             const alpha = Math.min(1.0, 0.4 * multiplier);
             g.beginFill(0x00ff00, alpha); 
             g.drawCircle(0, 0, 15 + (multiplier * 2)); 
@@ -320,8 +337,6 @@ export class WorldRenderer {
         this.app.destroy(true, { children: true });
     }
 
-    // --- Particles ---
-    // Storing particles here for simplicity of the refactor
     public activeParticles: any[] = [];
     
     public addParticle(p: any) {
