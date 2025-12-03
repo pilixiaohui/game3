@@ -49,7 +49,7 @@ export class GameEngine implements IGameEngine {
   private harvestSystem!: HarvestSystem;
   private hiveVisualSystem!: HiveVisualSystem;
   private deploymentSystem!: DeploymentSystem;
-  private levelManager!: LevelManager;
+  public levelManager!: LevelManager;
   
   // Authority Systems (Only exist if isSimulationAuthority = true)
   private metabolismSystem?: MetabolismSystem;

@@ -46,7 +46,6 @@ export class UnitPool {
     this.renderer = renderer;
     for (let i = 0; i < size; i++) {
       const u = new Unit(i);
-      // View initialization is now handled by the renderer using textures
       this.renderer.initUnitView(u);
       this.pool.push(u);
       this.freeIndices.push(i); 

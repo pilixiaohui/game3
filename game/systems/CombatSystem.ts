@@ -1,3 +1,4 @@
+
 import { IGameEngine, IUnit, Faction, StatusType, ObstacleDef } from '../../types';
 import { UnitPool, Unit } from '../Unit';
 import { SpatialHash } from '../SpatialHash';
@@ -71,6 +72,9 @@ export class CombatSystem {
             if (!u.isDead) this.spatialHash.insert(u);
         }
 
+        // Render HP Bars logic is handled by renderer now, CombatSystem only handles logic
+        this.engine.renderer?.renderHpBars(allUnits);
+
         for (const u of allUnits) {
             this.updateUnitLogic(u, dt);
         }
@@ -79,7 +83,17 @@ export class CombatSystem {
     private updateUnitLogic(u: Unit, dt: number) {
         if (u.isDead) {
             u.decayTimer += dt;
-            if (u.decayTimer > DECAY_TIME) this.unitPool.recycle(u);
+            if (u.decayTimer > DECAY_TIME) {
+                // STAMP DECAL
+                this.engine.events.emit('STAMP_DECAL', { 
+                    x: u.x, 
+                    y: u.y, 
+                    type: u.type, 
+                    rotation: u.view ? u.view.rotation : 0,
+                    scaleX: u.view ? u.view.scale.x : 1
+                });
+                this.unitPool.recycle(u);
+            }
             return;
         }
 

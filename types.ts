@@ -444,6 +444,14 @@ export interface IGameEngine {
     events: { emit: (event: string, data?: any) => void; on: (event: string, fn: (data: any) => void) => void; off: (event: string, fn: (data: any) => void) => void; };
     
     setMode(mode: 'COMBAT_VIEW' | 'HARVEST_VIEW' | 'HIVE', params?: any): void;
+    
+    // Exposed for gene logic
+    levelManager?: {
+         getFlowVector: (x: number, y: number) => { x: number, y: number };
+    };
+    renderer?: {
+        renderHpBars: (units: IUnit[]) => void;
+    };
 }
 
 export interface GeneTrait {

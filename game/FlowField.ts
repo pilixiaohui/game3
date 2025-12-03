@@ -129,7 +129,7 @@ export class FlowField {
 
     public getVector(x: number, y: number) {
         const cx = Math.floor((x - this.offset.x) / this.cellSize);
-        const cy = Math.floor((y - this.offset.y) / this.cellSize);
+        const cy = Math.floor(((LANE_Y + y) - this.offset.y) / this.cellSize);
         
         if (cx >= 0 && cx < this.cols && cy >= 0 && cy < this.rows) {
             const idx = (cy * this.cols + cx) * 2;

@@ -736,15 +736,13 @@ GeneLibrary.register({
         const moveMult = params.multiplier || 1.0;
 
         // Flow Field Integration
-        // Use the LevelManager's flow field (assumed to be accessible via engine if we typed it stronger, 
-        // but for now we trust LevelManager is available in context or we act blindly if not)
-        // Since GeneSystem takes `engine`, we need to cast it or assume structure.
-        // In GameEngine.ts, LevelManager is a property.
-        
+        // Access LevelManager via engine interface (assuming type augmentation or direct property access)
         // @ts-ignore
-        const lm = engine['levelManager'];
+        const lm = engine.levelManager;
         const flow = lm ? lm.getFlowVector(self.x, self.y) : { x: 1, y: 0 };
         
+        // Default Flow Direction (Move Right for Zerg, Left for Human generally, but flow field handles terrain)
+        // Override with direct target seeking if close
         if (self.target && !self.target.isDead) {
             const distSq = (self.target.x - self.x)**2 + (self.target.y - self.y)**2;
             const dist = Math.sqrt(distSq);
@@ -753,9 +751,11 @@ GeneLibrary.register({
                 const dirX = (self.target.x - self.x) / dist;
                 const dirY = (self.target.y - self.y) / dist;
                 
-                // Weight: 70% direct seek, 30% flow
-                const finalX = dirX * 0.7 + flow.x * 0.3;
-                const finalY = dirY * 0.7 + flow.y * 0.3;
+                // Weight: 30% direct seek, 70% flow (Flow is safer for navigation)
+                // If close, bias towards direct seek
+                const bias = Math.min(1.0, 300 / dist); 
+                const finalX = dirX * bias + flow.x * (1 - bias);
+                const finalY = dirY * bias + flow.y * (1 - bias);
 
                 velocity.x += finalX * self.stats.speed * self.speedVar * speedMult * moveMult * dt;
                 velocity.y += finalY * self.stats.speed * self.speedVar * speedMult * moveMult * dt;
@@ -766,8 +766,13 @@ GeneLibrary.register({
             const moveDir = self.faction === Faction.ZERG ? 1 : -1;
             // When just marching, follow flow field heavily
             if (self.stats.speed > 0) {
-                const finalX = moveDir * (Math.abs(flow.x) * 0.8 + 0.2); // Maintain forward bias
-                const finalY = flow.y;
+                // Adjust flow X based on faction direction if no target
+                // Zerg wants to go +X, Human wants to go -X
+                // Flow field naturally points right. Reverse for humans?
+                // For now assuming flow field is built for "Attackers" (Zerg).
+                
+                const finalX = (self.faction === Faction.ZERG) ? flow.x : -flow.x;
+                const finalY = flow.y; // Y is symmetric usually
                 
                 velocity.x += finalX * self.stats.speed * self.speedVar * speedMult * moveMult * dt;
                 velocity.y += finalY * self.stats.speed * self.speedVar * speedMult * moveMult * dt;
