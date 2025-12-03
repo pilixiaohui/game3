@@ -1,5 +1,4 @@
 
-
 import { IGameEngine, IUnit, Faction, StatusType, ObstacleDef } from '../../types';
 import { UnitPool, Unit } from '../Unit';
 import { SpatialHash } from '../SpatialHash';
@@ -19,6 +18,13 @@ export class CombatSystem {
         this.unitPool = unitPool;
         this.spatialHash = spatialHash;
         this.levelManager = levelManager;
+
+        // --- REGISTER EVENT LISTENERS FOR DECOUPLED LOGIC ---
+        this.engine.events.on('REQUEST_TRUE_DAMAGE', (d: any) => this.dealTrueDamage(d.target, d.amount));
+        this.engine.events.on('REQUEST_KILL', (d: any) => this.killUnit(d.target));
+        this.engine.events.on('REQUEST_STATUS', (d: any) => this.applyStatus(d.target, d.type, d.stacks, d.duration));
+        this.engine.events.on('REQUEST_DAMAGE_PIPELINE', (d: any) => this.processDamagePipeline(d.source, d.target));
+        this.engine.events.on('REQUEST_ATTACK', (d: any) => this.performAttack(d.source, d.target));
     }
 
     public update(dt: number) {
@@ -105,15 +111,15 @@ export class CombatSystem {
         return null;
     }
 
-    // --- Combat Logic Exposed to Engine ---
+    // --- Internal Logic ---
 
-    public dealTrueDamage(target: IUnit, amount: number) {
+    private dealTrueDamage(target: IUnit, amount: number) {
         if (target.isDead) return;
         target.stats.hp -= amount;
         if (target.stats.hp <= 0) { target.stats.hp = 0; this.killUnit(target); }
     }
 
-    public killUnit(u: IUnit) {
+    private killUnit(u: IUnit) {
         if (u.isDead) return;
         u.isDead = true;
         if (u.faction === Faction.HUMAN) {
@@ -128,7 +134,7 @@ export class CombatSystem {
         }
     }
 
-    public applyStatus(target: IUnit, type: StatusType, stacks: number, duration: number) {
+    private applyStatus(target: IUnit, type: StatusType, stacks: number, duration: number) {
         if (target.isDead) return;
         if (!target.statuses[type]) target.statuses[type] = { type, stacks: 0, duration: 0 };
         const s = target.statuses[type]!;
@@ -136,7 +142,7 @@ export class CombatSystem {
         s.duration = Math.max(s.duration, duration);
     }
 
-    public processDamagePipeline(source: IUnit, target: IUnit) {
+    private processDamagePipeline(source: IUnit, target: IUnit) {
         if (target.isDead || source.isDead) return;
         let damage = source.stats.damage;
         
@@ -185,7 +191,7 @@ export class CombatSystem {
         }
     }
 
-    public performAttack(source: IUnit, target: IUnit) {
+    private performAttack(source: IUnit, target: IUnit) {
         if (source.isDead || target.isDead) return;
         let proceed = true;
         for (const gene of source.geneConfig) { 

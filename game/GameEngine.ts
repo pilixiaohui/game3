@@ -48,6 +48,11 @@ export class GameEngine implements IGameEngine {
     this.spatialHash = new SpatialHash(100);
     this.events = new SimpleEventEmitter();
     this.isSimulationAuthority = isAuthority;
+
+    // Listen to Spawn Requests
+    this.events.on('REQUEST_SPAWN', (data: any) => {
+        this.spawnUnit(data.faction, data.type, data.x);
+    });
   }
 
   async init(element: HTMLElement) {
@@ -163,9 +168,9 @@ export class GameEngine implements IGameEngine {
     this.renderer.updateParticles(dt);
   }
 
-  // --- IGameEngine Implementations (Event Emitters) ---
+  // --- INTERNAL LOGIC ---
   
-  public spawnUnit(faction: Faction, type: UnitType, x: number): IUnit | null {
+  private spawnUnit(faction: Faction, type: UnitType, x: number): IUnit | null {
       const level = (faction === Faction.HUMAN) ? (this.levelManager.currentStageIndex + 1) : 1;
       return this.unitPool ? this.unitPool.spawn(faction, type, x, DataManager.instance.modifiers, level) : null;
   }
@@ -184,11 +189,5 @@ export class GameEngine implements IGameEngine {
       };
   }
   
-  public dealTrueDamage(target: IUnit, amount: number) { this.combatSystem.dealTrueDamage(target, amount); }
-  public killUnit(u: IUnit) { this.combatSystem.killUnit(u); }
-  public applyStatus(target: IUnit, type: StatusType, stacks: number, duration: number) { this.combatSystem.applyStatus(target, type, stacks, duration); }
-  public processDamagePipeline(source: IUnit, target: IUnit) { this.combatSystem.processDamagePipeline(source, target); }
-  public performAttack(source: IUnit, target: IUnit) { this.combatSystem.performAttack(source, target); }
-
   public destroy() { this.renderer?.destroy(); }
 }

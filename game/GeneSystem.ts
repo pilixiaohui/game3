@@ -36,12 +36,12 @@ export class StatusRegistry {
 }
 
 StatusRegistry.registerTick('BURNING', (target, dt, engine, stacks) => {
-    engine.dealTrueDamage(target, stacks * 0.5 * dt);
+    engine.events.emit('REQUEST_TRUE_DAMAGE', { target, amount: stacks * 0.5 * dt });
 });
 StatusRegistry.registerVisual('BURNING', 0xff4500);
 
 StatusRegistry.registerTick('POISONED', (target, dt, engine, stacks) => {
-    engine.dealTrueDamage(target, stacks * 0.3 * dt);
+    engine.events.emit('REQUEST_TRUE_DAMAGE', { target, amount: stacks * 0.3 * dt });
 });
 StatusRegistry.registerVisual('POISONED', 0x4ade80);
 
@@ -75,7 +75,7 @@ ReactionRegistry.register('FROZEN', 'THERMAL', (target, engine) => {
         delete target.statuses['FROZEN'];
         engine.events.emit('FX', { type: 'TEXT', x: target.x, y: target.y - 50, text: "THERMAL SHOCK!", color: 0xffaa00, fontSize: 16 });
         engine.events.emit('FX', { type: 'EXPLOSION', x: target.x, y: target.y, radius: 40, color: 0xffaa00 });
-        engine.dealTrueDamage(target, target.stats.maxHp * 0.2); 
+        engine.events.emit('REQUEST_TRUE_DAMAGE', { target, amount: target.stats.maxHp * 0.2 });
     }
 });
 
@@ -84,17 +84,17 @@ ReactionRegistry.register('FROZEN', 'PHYSICAL', (target, engine) => {
         delete target.statuses['FROZEN'];
         engine.events.emit('FX', { type: 'TEXT', x: target.x, y: target.y - 50, text: "SHATTER!", color: 0xa5f3fc, fontSize: 16 });
         engine.events.emit('FX', { type: 'DAMAGE_POP', x: target.x, y: target.y - 40, text: Math.floor(target.stats.maxHp * 0.15).toString(), color: 0x60a5fa, fontSize: 14 });
-        engine.dealTrueDamage(target, target.stats.maxHp * 0.15);
+        engine.events.emit('REQUEST_TRUE_DAMAGE', { target, amount: target.stats.maxHp * 0.15 });
     }
 });
 
 ReactionRegistry.register('POISONED', 'VOLTAIC', (target, engine) => {
-    engine.applyStatus(target, 'ARMOR_BROKEN', 1, 10);
+    engine.events.emit('REQUEST_STATUS', { target, type: 'ARMOR_BROKEN', stacks: 1, duration: 10 });
     engine.events.emit('FX', { type: 'TEXT', x: target.x, y: target.y - 50, text: "CORRODED!", color: 0x4ade80, fontSize: 16 });
 });
 
 ReactionRegistry.register('SHOCKED', 'CRYO', (target, engine) => {
-    engine.applyStatus(target, 'FROZEN', 20, 10);
+    engine.events.emit('REQUEST_STATUS', { target, type: 'FROZEN', stacks: 20, duration: 10 });
     engine.events.emit('FX', { type: 'TEXT', x: target.x, y: target.y - 50, text: "SUPERCONDUCT!", color: 0x60a5fa, fontSize: 16 });
 });
 
@@ -136,7 +136,7 @@ GeneLibrary.register({
         
         if ((target.stats.hp / target.stats.maxHp) < threshold) {
             const extra = damage * (mult - 1);
-            engine.dealTrueDamage(target, extra);
+            engine.events.emit('REQUEST_TRUE_DAMAGE', { target, amount: extra });
             engine.events.emit('FX', { type: 'TEXT', x: target.x, y: target.y - 40, text: "CRUSH!", color: 0xff0000, fontSize: 14 });
         }
     }
@@ -149,7 +149,7 @@ GeneLibrary.register({
         const diff = target.stats.maxHp / self.stats.maxHp;
         if (diff > 2.0) {
             const extraPct = params.extraPct || 0.05;
-            engine.dealTrueDamage(target, target.stats.maxHp * extraPct);
+            engine.events.emit('REQUEST_TRUE_DAMAGE', { target, amount: target.stats.maxHp * extraPct });
             if (Math.random() < 0.3) engine.events.emit('FX', { type: 'TEXT', x: target.x, y: target.y - 40, text: "SLAYER", color: 0xffaa00, fontSize: 10 });
         }
     }
@@ -174,7 +174,7 @@ GeneLibrary.register({
         for(let i=0; i<count; i++) {
             const u = neighbors[i];
             if (u !== target && u !== self && u.faction !== self.faction && !u.isDead) {
-                engine.processDamagePipeline(self, u);
+                engine.events.emit('REQUEST_DAMAGE_PIPELINE', { source: self, target: u });
             }
         }
         
@@ -220,7 +220,7 @@ GeneLibrary.register({
             const originalDmg = self.stats.damage;
             self.stats.damage = originalDmg * decay;
             
-            engine.processDamagePipeline(self, nextTarget);
+            engine.events.emit('REQUEST_DAMAGE_PIPELINE', { source: self, target: nextTarget });
             
             self.stats.damage = originalDmg;
             self.context.chainDepth = currentDepth;
@@ -236,7 +236,7 @@ GeneLibrary.register({
     id: 'GENE_POISON_TOUCH',
     name: '剧毒触碰',
     onHit: (self, target, damage, engine, params) => {
-        engine.applyStatus(target, 'POISONED', params.stacks || 2, 5);
+        engine.events.emit('REQUEST_STATUS', { target, type: 'POISONED', stacks: params.stacks || 2, duration: 5 });
     }
 });
 
@@ -262,7 +262,7 @@ GeneLibrary.register({
         const reflect = params.ratio || 0.3;
         const distSq = (self.x - attacker.x)**2 + (self.y - attacker.y)**2;
         if (distSq < 100*100) {
-            engine.dealTrueDamage(attacker, damage * reflect);
+            engine.events.emit('REQUEST_TRUE_DAMAGE', { target: attacker, amount: damage * reflect });
             engine.events.emit('FX', { type: 'FLASH', x: self.x, y: self.y, color: 0x88ff88 });
         }
         return damage;
@@ -408,7 +408,7 @@ GeneLibrary.register({
         for(let i=0; i<count; i++) {
             const u = neighbors[i];
             if (u.faction === self.faction) {
-                engine.applyStatus(u, 'FRENZY', 1, 0.6); 
+                engine.events.emit('REQUEST_STATUS', { target: u, type: 'FRENZY', stacks: 1, duration: 0.6 });
                 if (Math.random() < 0.1) engine.events.emit('FX', { type: 'PARTICLES', x: u.x, y: u.y, color: 0xff00ff, count: 1 });
             }
         }
@@ -430,7 +430,7 @@ GeneLibrary.register({
         for(let i=0; i<count; i++) {
             const u = neighbors[i];
             if (u.faction !== self.faction && !u.isDead) {
-                engine.applyStatus(u, 'SLOWED', 1, 0.6);
+                engine.events.emit('REQUEST_STATUS', { target: u, type: 'SLOWED', stacks: 1, duration: 0.6 });
                 if (Math.random() < 0.1) engine.events.emit('FX', { type: 'TEXT', x: u.x, y: u.y - 10, text: "FEAR", color: 0x880000, fontSize: 8 });
             }
         }
@@ -442,7 +442,7 @@ GeneLibrary.register({
     name: '重击',
     onHit: (self, target, damage, engine, params) => {
         if (Math.random() < (params.chance || 0.15)) {
-            engine.applyStatus(target, 'STUNNED', 1, 1.0);
+            engine.events.emit('REQUEST_STATUS', { target, type: 'STUNNED', stacks: 1, duration: 1.0 });
             engine.events.emit('FX', { type: 'TEXT', x: target.x, y: target.y - 20, text: "STUN", color: 0xffff00, fontSize: 12 });
         }
     }
@@ -499,7 +499,7 @@ GeneLibrary.register({
         const type = params.unitType || UnitType.MELEE;
         for(let i=0; i<count; i++) {
             const offsetX = (Math.random() - 0.5) * 20;
-            engine.spawnUnit(self.faction, type, self.x + offsetX);
+            engine.events.emit('REQUEST_SPAWN', { faction: self.faction, type, x: self.x + offsetX });
         }
         engine.events.emit('FX', { type: 'TEXT', x: self.x, y: self.y, text: "SPAWN!", color: 0x00ff00, fontSize: 20 });
     }
@@ -513,7 +513,7 @@ GeneLibrary.register({
              self.context.detonateTimer = (self.context.detonateTimer || 0) + dt;
              // Logic: Just update timer. Renderer handles tint/scale based on timer.
              if (self.context.detonateTimer >= 0.5) {
-                 engine.killUnit(self);
+                 engine.events.emit('REQUEST_KILL', { target: self });
              }
         }
     },
@@ -589,7 +589,7 @@ GeneLibrary.register({
                 self.state = 'ATTACK';
                 if (self.attackCooldown <= 0) {
                     self.attackCooldown = self.stats.attackSpeed; 
-                    engine.performAttack(self, self.target);
+                    engine.events.emit('REQUEST_ATTACK', { source: self, target: self.target });
                 }
             } else {
                 if (self.state === 'ATTACK') self.state = 'IDLE';
@@ -606,7 +606,7 @@ GeneLibrary.register({
     onPreAttack: (self, target, engine, params) => {
         engine.events.emit('FX', { type: 'SLASH', x: self.x, y: self.y, targetX: target.x, targetY: target.y, color: ELEMENT_COLORS[self.stats.element] || 0xffffff });
         engine.events.emit('FX', { type: 'FLASH', x: target.x + (Math.random() * 10 - 5), y: target.y - 10, color: ELEMENT_COLORS[self.stats.element] || 0xffffff });
-        engine.processDamagePipeline(self, target);
+        engine.events.emit('REQUEST_DAMAGE_PIPELINE', { source: self, target });
         return false; 
     }
 });
@@ -617,7 +617,7 @@ GeneLibrary.register({
     onPreAttack: (self, target, engine, params) => {
         const color = params.projectileColor || ELEMENT_COLORS[self.stats.element] || 0xffffff;
         engine.events.emit('FX', { type: 'PROJECTILE', x: self.x, y: self.y - 15, x2: target.x, y2: target.y - 15, color });
-        engine.processDamagePipeline(self, target);
+        engine.events.emit('REQUEST_DAMAGE_PIPELINE', { source: self, target });
         return false; 
     }
 });
@@ -628,7 +628,7 @@ GeneLibrary.register({
     onPreAttack: (self, target, engine, params) => {
         const color = params.color || ELEMENT_COLORS[self.stats.element] || 0xff7777;
         engine.events.emit('FX', { type: 'PROJECTILE', x: self.x, y: self.y - (params.arcHeight || 20), x2: target.x, y2: target.y, color }); 
-        engine.processDamagePipeline(self, target);
+        engine.events.emit('REQUEST_DAMAGE_PIPELINE', { source: self, target });
         return false;
     }
 });
@@ -643,7 +643,7 @@ GeneLibrary.register({
         const radius = params.radius || 40;
         engine.events.emit('FX', { type: 'SHOCKWAVE', x: target.x, y: target.y, radius, color });
         
-        engine.processDamagePipeline(self, target);
+        engine.events.emit('REQUEST_DAMAGE_PIPELINE', { source: self, target });
         
         const neighbors = engine._sharedQueryBuffer;
         const count = engine.spatialHash.query(target.x, target.y, radius, neighbors);
@@ -651,7 +651,7 @@ GeneLibrary.register({
         for (let i = 0; i < count; i++) {
             const n = neighbors[i];
             if (n !== target && n.faction !== self.faction && !n.isDead) {
-                engine.processDamagePipeline(self, n);
+                engine.events.emit('REQUEST_DAMAGE_PIPELINE', { source: self, target: n });
             }
         }
         return false;
@@ -665,10 +665,10 @@ GeneLibrary.register({
         const el = self.stats.element;
         const amount = params.amount || UNIT_CONFIGS[self.type].elementConfig?.statusPerHit || 10;
         
-        if (el === 'THERMAL') engine.applyStatus(target, 'BURNING', amount, 5);
-        if (el === 'CRYO') engine.applyStatus(target, 'FROZEN', amount, 5);
-        if (el === 'VOLTAIC') engine.applyStatus(target, 'SHOCKED', amount, 5);
-        if (el === 'TOXIN') engine.applyStatus(target, 'POISONED', amount, 5);
+        if (el === 'THERMAL') engine.events.emit('REQUEST_STATUS', { target, type: 'BURNING', stacks: amount, duration: 5 });
+        if (el === 'CRYO') engine.events.emit('REQUEST_STATUS', { target, type: 'FROZEN', stacks: amount, duration: 5 });
+        if (el === 'VOLTAIC') engine.events.emit('REQUEST_STATUS', { target, type: 'SHOCKED', stacks: amount, duration: 5 });
+        if (el === 'TOXIN') engine.events.emit('REQUEST_STATUS', { target, type: 'POISONED', stacks: amount, duration: 5 });
         
         engine.events.emit('FX', { type: 'PARTICLES', x: target.x, y: target.y, color: ELEMENT_COLORS[el] || 0xffffff, count: 3 });
     }
@@ -701,7 +701,7 @@ GeneLibrary.register({
         for (let i=0; i<count; i++) {
             const n = neighbors[i];
             if (n.faction !== self.faction && !n.isDead) {
-                engine.dealTrueDamage(n, dmg);
+                engine.events.emit('REQUEST_TRUE_DAMAGE', { target: n, amount: dmg });
             }
         }
     }
