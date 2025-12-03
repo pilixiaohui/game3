@@ -12,6 +12,14 @@ export class CombatSystem {
     private unitPool: UnitPool;
     private spatialHash: SpatialHash;
     private levelManager: LevelManager;
+    private isEnabled: boolean = false;
+
+    // Bound handlers for event listeners (to ensure proper 'this' context and removal)
+    private boundDealTrueDamage: (d: any) => void;
+    private boundKillUnit: (d: any) => void;
+    private boundApplyStatus: (d: any) => void;
+    private boundProcessDamagePipeline: (d: any) => void;
+    private boundPerformAttack: (d: any) => void;
 
     constructor(engine: IGameEngine, unitPool: UnitPool, spatialHash: SpatialHash, levelManager: LevelManager) {
         this.engine = engine;
@@ -19,15 +27,43 @@ export class CombatSystem {
         this.spatialHash = spatialHash;
         this.levelManager = levelManager;
 
-        // --- REGISTER EVENT LISTENERS FOR DECOUPLED LOGIC ---
-        this.engine.events.on('REQUEST_TRUE_DAMAGE', (d: any) => this.dealTrueDamage(d.target, d.amount));
-        this.engine.events.on('REQUEST_KILL', (d: any) => this.killUnit(d.target));
-        this.engine.events.on('REQUEST_STATUS', (d: any) => this.applyStatus(d.target, d.type, d.stacks, d.duration));
-        this.engine.events.on('REQUEST_DAMAGE_PIPELINE', (d: any) => this.processDamagePipeline(d.source, d.target));
-        this.engine.events.on('REQUEST_ATTACK', (d: any) => this.performAttack(d.source, d.target));
+        // Pre-bind handlers
+        this.boundDealTrueDamage = (d: any) => this.dealTrueDamage(d.target, d.amount);
+        this.boundKillUnit = (d: any) => this.killUnit(d.target);
+        this.boundApplyStatus = (d: any) => this.applyStatus(d.target, d.type, d.stacks, d.duration);
+        this.boundProcessDamagePipeline = (d: any) => this.processDamagePipeline(d.source, d.target);
+        this.boundPerformAttack = (d: any) => this.performAttack(d.source, d.target);
+    }
+
+    public enable() {
+        if (this.isEnabled) return;
+        this.isEnabled = true;
+        
+        this.engine.events.on('REQUEST_TRUE_DAMAGE', this.boundDealTrueDamage);
+        this.engine.events.on('REQUEST_KILL', this.boundKillUnit);
+        this.engine.events.on('REQUEST_STATUS', this.boundApplyStatus);
+        this.engine.events.on('REQUEST_DAMAGE_PIPELINE', this.boundProcessDamagePipeline);
+        this.engine.events.on('REQUEST_ATTACK', this.boundPerformAttack);
+    }
+
+    public disable() {
+        if (!this.isEnabled) return;
+        this.isEnabled = false;
+
+        this.engine.events.off('REQUEST_TRUE_DAMAGE', this.boundDealTrueDamage);
+        this.engine.events.off('REQUEST_KILL', this.boundKillUnit);
+        this.engine.events.off('REQUEST_STATUS', this.boundApplyStatus);
+        this.engine.events.off('REQUEST_DAMAGE_PIPELINE', this.boundProcessDamagePipeline);
+        this.engine.events.off('REQUEST_ATTACK', this.boundPerformAttack);
+    }
+    
+    public cleanup() {
+        this.disable();
     }
 
     public update(dt: number) {
+        if (!this.isEnabled) return;
+
         const allUnits = this.unitPool.getActiveUnits();
         
         // Rebuild Spatial Hash

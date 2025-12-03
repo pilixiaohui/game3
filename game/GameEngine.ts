@@ -105,8 +105,22 @@ export class GameEngine implements IGameEngine {
 
   public setMode(mode: 'COMBAT_VIEW' | 'HIVE' | 'HARVEST_VIEW') {
       if (this.mode === mode) return;
+      
+      // Cleanup previous mode
+      this.cleanupCurrentMode();
+      
       this.mode = mode;
       this.applyModeSettings();
+  }
+
+  private cleanupCurrentMode() {
+      if (this.mode === 'COMBAT_VIEW') {
+          this.combatSystem.disable(); // Important: Remove event listeners
+      } else if (this.mode === 'HARVEST_VIEW') {
+          this.harvestSystem.cleanup();
+      } else if (this.mode === 'HIVE') {
+          this.hiveVisualSystem.cleanup();
+      }
   }
 
   private applyModeSettings() {
@@ -114,12 +128,11 @@ export class GameEngine implements IGameEngine {
       
       this.renderer.clear();
       this.renderer.hiveLayer.removeChildren();
-      this.harvestSystem.cleanup();
-      this.hiveVisualSystem.cleanup();
 
       if (this.mode === 'HIVE') {
           this.hiveVisualSystem.init();
       } else if (this.mode === 'COMBAT_VIEW') {
+          this.combatSystem.enable(); // Re-attach event listeners
           this.levelManager.loadRegion(this.activeRegionId);
       } else if (this.mode === 'HARVEST_VIEW') {
           this.harvestSystem.init(this.activeRegionId);
@@ -197,5 +210,8 @@ export class GameEngine implements IGameEngine {
       };
   }
   
-  public destroy() { this.renderer?.destroy(); }
+  public destroy() { 
+      this.cleanupCurrentMode();
+      this.renderer?.destroy(); 
+  }
 }

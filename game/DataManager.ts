@@ -170,8 +170,6 @@ export class DataManager {
 
     public getRecycleRate(): number { return 0.5; }
     
-    // Logic moved to ProductionSystem
-    
     public getClickValue(): number {
         return CLICK_CONFIG.BASE + (this.rates.biomass * CLICK_CONFIG.SCALING);
     }
@@ -192,80 +190,32 @@ export class DataManager {
 
     public getMetabolismCost(key: string) {
         const config = METABOLISM_FACILITIES[key as keyof typeof METABOLISM_FACILITIES] as any;
-        if (!config) return { resource: 'biomass', cost: 0 };
+        if (!config || !config.stateKey) return { resource: 'biomass', cost: 0 };
         
-        const map: Record<string, string> = {
-            'VILLI': 'villiCount',
-            'TAPROOT': 'taprootCount',
-            'GEYSER': 'geyserCount',
-            'BREAKER': 'breakerCount',
-            'SAC': 'fermentingSacCount',
-            'PUMP': 'refluxPumpCount',
-            'CRACKER': 'thermalCrackerCount',
-            'BOILER': 'fleshBoilerCount',
-            'NECRO_SIPHON': 'necroSiphonCount',
-            'RED_TIDE': 'redTideCount',
-            'GAIA_DIGESTER': 'gaiaDigesterCount',
-            'BLOOD_FUSION': 'bloodFusionCount',
-            'RESONATOR': 'synapticResonatorCount',
-            'ENTROPY_VENT': 'entropyVentCount',
-            'SPIRE': 'thoughtSpireCount',
-            'HIVE_MIND': 'hiveMindCount',
-            'RECORDER': 'akashicRecorderCount',
-            'COMBAT_CORTEX': 'combatCortexCount',
-            'GENE_ARCHIVE': 'geneArchiveCount',
-            'OMEGA_POINT': 'omegaPointCount',
-            'STORAGE': 'storageCount',
-            'SUPPLY': 'supplyCount'
-        };
-
-        const prop = map[key];
-        const count = prop ? (this.state.hive.metabolism as any)[prop] || 0 : 0;
-        
+        const count = (this.state.hive.metabolism as any)[config.stateKey] || 0;
         const cost = Math.floor(config.BASE_COST * Math.pow(config.GROWTH, count));
         return { resource: config.COST_RESOURCE, cost };
     }
 
     public upgradeMetabolism(key: string) {
+        const config = METABOLISM_FACILITIES[key as keyof typeof METABOLISM_FACILITIES] as any;
+        if (!config || !config.stateKey) return;
+
         const { resource, cost } = this.getMetabolismCost(key);
         // @ts-ignore
         if (this.state.resources[resource] >= cost) {
             // @ts-ignore
             this.modifyResource(resource, -cost);
 
-             const map: Record<string, string> = {
-                'VILLI': 'villiCount',
-                'TAPROOT': 'taprootCount',
-                'GEYSER': 'geyserCount',
-                'BREAKER': 'breakerCount',
-                'SAC': 'fermentingSacCount',
-                'PUMP': 'refluxPumpCount',
-                'CRACKER': 'thermalCrackerCount',
-                'BOILER': 'fleshBoilerCount',
-                'NECRO_SIPHON': 'necroSiphonCount',
-                'RED_TIDE': 'redTideCount',
-                'GAIA_DIGESTER': 'gaiaDigesterCount',
-                'BLOOD_FUSION': 'bloodFusionCount',
-                'RESONATOR': 'synapticResonatorCount',
-                'ENTROPY_VENT': 'entropyVentCount',
-                'SPIRE': 'thoughtSpireCount',
-                'HIVE_MIND': 'hiveMindCount',
-                'RECORDER': 'akashicRecorderCount',
-                'COMBAT_CORTEX': 'combatCortexCount',
-                'GENE_ARCHIVE': 'geneArchiveCount',
-                'OMEGA_POINT': 'omegaPointCount',
-                'STORAGE': 'storageCount',
-                'SUPPLY': 'supplyCount'
-            };
-            const prop = map[key];
-            if (prop) {
-                const meta = this.state.hive.metabolism as any;
-                meta[prop] = (meta[prop] || 0) + 1;
-                this.saveGame();
-                this.events.emit('PRODUCTION_CHANGED', {});
-                if (key === 'STORAGE' || key === 'SUPPLY') {
-                     this.events.emit('RESOURCE_CHANGED', {});
-                }
+            const prop = config.stateKey;
+            const meta = this.state.hive.metabolism as any;
+            meta[prop] = (meta[prop] || 0) + 1;
+            
+            this.saveGame();
+            this.events.emit('PRODUCTION_CHANGED', {});
+            
+            if (key === 'STORAGE' || key === 'SUPPLY') {
+                 this.events.emit('RESOURCE_CHANGED', {});
             }
         }
     }
