@@ -1,7 +1,9 @@
 
+
 import { Application, Container, Graphics, TilingSprite, Text, TextStyle } from 'pixi.js';
-import { IUnit, ObstacleDef, UnitType, Faction } from '../../types';
+import { IUnit, ObstacleDef, UnitType, Faction, IFxEvent } from '../../types';
 import { LANE_Y, UNIT_CONFIGS, ELEMENT_COLORS } from '../../constants';
+import { SimpleEventEmitter } from '../DataManager';
 
 export class WorldRenderer {
     public app: Application;
@@ -16,7 +18,7 @@ export class WorldRenderer {
     
     private obstacleGraphics: Graphics[] = [];
 
-    constructor(element: HTMLElement) {
+    constructor(element: HTMLElement, events: SimpleEventEmitter) {
         this.app = new Application({ 
             resizeTo: element, 
             backgroundColor: 0x0a0a0a, 
@@ -61,6 +63,48 @@ export class WorldRenderer {
         this.world.addChild(this.hiveLayer);
         this.world.addChild(this.unitLayer);
         this.world.addChild(this.particleLayer);
+
+        // Listen for FX Events
+        events.on('FX', this.handleFxEvent.bind(this));
+    }
+
+    private handleFxEvent(e: IFxEvent) {
+        if (e.type === 'EXPLOSION') {
+            this.createParticles(e.x, e.y, e.color, 10);
+            this.createShockwave(e.x, e.y, e.radius, e.color);
+        } else if (e.type === 'FLASH') {
+            const g = new Graphics(); g.beginFill(e.color); g.drawCircle(0, 0, 20); g.endFill(); g.position.set(e.x, e.y);
+            this.addParticle({ view: g, type: 'GRAPHICS', life: 0.1, maxLife: 0.1, update: (p:any, dt:number) => { p.life -= dt; p.view.alpha = p.life/p.maxLife; return p.life > 0; } });
+        } else if (e.type === 'PROJECTILE') {
+            const g = new Graphics(); g.lineStyle(2, e.color); g.moveTo(0,0); g.lineTo(e.x2-e.x, e.y2-e.y); g.position.set(e.x, e.y);
+            this.addParticle({ view: g, type: 'GRAPHICS', life: 0.1, maxLife: 0.1, update: (p:any, dt:number) => { p.life -= dt; p.view.alpha = p.life/p.maxLife; return p.life > 0; } });
+        } else if (e.type === 'TEXT') {
+            const t = new Text(e.text, new TextStyle({ fontSize: e.fontSize || 12, fill: e.color, fontWeight: 'bold' })); t.anchor.set(0.5); t.position.set(e.x, e.y);
+            this.addParticle({ view: t, type: 'TEXT', life: 0.8, maxLife: 0.8, update: (p:any, dt:number) => { p.life -= dt; p.view.y -= 20 * dt; p.view.alpha = p.life/p.maxLife; return p.life > 0; } });
+        } else if (e.type === 'SLASH') {
+            const g = new Graphics(); g.lineStyle(2, e.color); g.moveTo(e.x - 10, e.y - 10); g.lineTo(e.targetX + 10, e.targetY + 10); g.moveTo(e.x + 10, e.y - 10); g.lineTo(e.targetX - 10, e.targetY + 10);
+            this.addParticle({ view: g, type: 'GRAPHICS', life: 0.1, maxLife: 0.1, update: (p:any, dt:number) => { p.life -= dt; p.view.alpha = p.life; return p.life > 0; } });
+        } else if (e.type === 'SHOCKWAVE') {
+             this.createShockwave(e.x, e.y, e.radius, e.color);
+        } else if (e.type === 'PARTICLES') {
+            this.createParticles(e.x, e.y, e.color, e.count);
+        } else if (e.type === 'HEAL') {
+             // Create text helper
+             this.handleFxEvent({ type: 'TEXT', x: e.x, y: e.y - 10, text: '+', color: 0x00ff00, fontSize: 14 });
+        }
+    }
+
+    private createShockwave(x: number, y: number, radius: number, color: number) {
+        const g = new Graphics(); g.lineStyle(2, color); g.drawCircle(0, 0, radius); g.position.set(x, y);
+        this.addParticle({ view: g, type: 'GRAPHICS', life: 0.3, maxLife: 0.3, update: (p:any, dt:number) => { p.life -= dt; p.view.scale.set(1 + (1 - p.life/p.maxLife)); p.view.alpha = p.life/p.maxLife; return p.life > 0; } });
+    }
+
+    private createParticles(x: number, y: number, color: number, count: number) {
+        for(let i=0; i<count; i++) {
+            const g = new Graphics(); g.beginFill(color); g.drawRect(0,0,3,3); g.endFill(); g.position.set(x, y);
+            const vx = (Math.random() - 0.5) * 100; const vy = (Math.random() - 0.5) * 100;
+            this.addParticle({ view: g, type: 'GRAPHICS', life: 0.5, maxLife: 0.5, update: (p:any, dt:number) => { p.life -= dt; p.view.x += vx * dt; p.view.y += vy * dt; p.view.alpha = p.life/p.maxLife; return p.life > 0; } });
+        }
     }
 
     public resize(scaleFactor: number, cameraX: number, mode: string) {
@@ -137,6 +181,14 @@ export class WorldRenderer {
         view.beginFill(0xff00ff, 0.9);
         view.drawCircle(width * 0.2, -height + 8, 2);
         view.endFill();
+
+        // Carry Bag (for Harvesters)
+        // @ts-ignore
+        if (unit.context.carryAmount > 0) {
+             view.beginFill(0x00ff00);
+             view.drawCircle(0, -height/2, 5);
+             view.endFill();
+        }
     }
 
     public updateUnitVisuals(unit: IUnit, mode: string) {
@@ -160,6 +212,20 @@ export class WorldRenderer {
             hpBar.drawRect(-10, -unit.stats.height - 8, 20 * pct, 3);
             hpBar.endFill();
         }
+
+        // Draw Carry Bag dynamic update
+        // (Simplified: We rely on `drawUnit` being called once, but for dynamic carry state we might need redraw)
+        // For performance, we'll just check if we need to redraw when state changes, or simple hack:
+        // @ts-ignore
+        if (unit.context.carryAmount > 0 && !unit.context.visualHasBag) {
+            // @ts-ignore
+             unit.context.visualHasBag = true;
+             this.drawUnit(unit);
+        } else if (!unit.context.carryAmount && unit.context.visualHasBag) {
+             // @ts-ignore
+             unit.context.visualHasBag = false;
+             this.drawUnit(unit);
+        }
         
         if (unit.isDead) {
             // @ts-ignore
@@ -169,6 +235,13 @@ export class WorldRenderer {
             view.y += Math.sin(Date.now() / 200 + unit.id) * 2;
             if (mode === 'COMBAT_VIEW') {
                view.scale.x = (unit.faction === Faction.ZERG) ? 1 : -1;
+            } else if (mode === 'HARVEST_VIEW') {
+                 // Face movement direction
+                // @ts-ignore
+                 if (unit.steeringForce && unit.steeringForce.x !== 0) {
+                     // @ts-ignore
+                     view.scale.x = unit.steeringForce.x > 0 ? 1 : -1;
+                 }
             }
         }
     }

@@ -1,4 +1,5 @@
 
+
 import { IGameEngine, IUnit, Faction, StatusType, ObstacleDef } from '../../types';
 import { UnitPool, Unit } from '../Unit';
 import { SpatialHash } from '../SpatialHash';
@@ -79,9 +80,9 @@ export class CombatSystem {
                      u.attackCooldown = u.stats.attackSpeed;
                      const destroyed = this.levelManager.damageObstacle(wallHit, u.stats.damage);
                      if (destroyed) {
-                         this.engine.createExplosion(wallHit.x, LANE_Y + wallHit.y - wallHit.height/2, 100, 0x555555);
+                         this.engine.events.emit('FX', { type: 'EXPLOSION', x: wallHit.x, y: LANE_Y + wallHit.y - wallHit.height/2, radius: 100, color: 0x555555 });
                      }
-                     this.engine.createSlash(wallHit.x - 20, u.y, wallHit.x, u.y, 0xff0000);
+                     this.engine.events.emit('FX', { type: 'SLASH', x: wallHit.x - 20, y: u.y, targetX: wallHit.x, targetY: u.y, color: 0xff0000 });
                  }
             }
         }
@@ -142,7 +143,7 @@ export class CombatSystem {
         // 1. Source Modifiers
         if (Math.random() < source.stats.critChance) { 
             damage *= source.stats.critDamage; 
-            this.engine.createFloatingText(target.x, target.y - 30, "CRIT!", 0xff0000, 16); 
+            this.engine.events.emit('FX', { type: 'TEXT', x: target.x, y: target.y - 30, text: "CRIT!", color: 0xff0000, fontSize: 16 });
         }
         if (source.statuses['FRENZY']) damage *= 1.25;
         for (const gene of source.geneConfig) { 
@@ -164,7 +165,14 @@ export class CombatSystem {
 
         // 3. Application
         target.stats.hp -= damageTaken;
-        this.engine.createDamagePop(target.x, target.y - 10, damageTaken, source.stats.element);
+        this.engine.events.emit('FX', { 
+            type: 'DAMAGE_POP', 
+            x: target.x, y: target.y - 10, 
+            text: Math.floor(damageTaken).toString(), 
+            color: ELEMENT_COLORS[source.stats.element as keyof typeof ELEMENT_COLORS] || 0xffffff,
+            fontSize: 14
+        });
+        
         ReactionRegistry.handle(target, source.stats.element, this.engine, damageTaken);
 
         if (target.stats.hp <= 0) { 

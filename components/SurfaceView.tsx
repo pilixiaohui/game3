@@ -8,19 +8,20 @@ import { GameEngine } from '../game/GameEngine';
 
 interface SurfaceViewProps {
     mode: TopViewMode;
-    globalState: any; // Simplified for brevity
+    globalState: any; 
     gameState: GameStateSnapshot;
     activeRegion: RegionData | null;
+    harvestRegion?: RegionData | null;
     mapRegions: RegionData[];
     onEnterRegion: (region: RegionData) => void;
     onEvacuate: () => void;
-    onOpenHive: () => void;
+    onOpenHive: (region: RegionData) => void;
     onReturnToMap: () => void;
     onEngineInit: (engine: GameEngine) => void;
 }
 
 export const SurfaceView: React.FC<SurfaceViewProps> = ({ 
-    mode, globalState, gameState, activeRegion, mapRegions, 
+    mode, globalState, gameState, activeRegion, harvestRegion, mapRegions, 
     onEnterRegion, onEvacuate, onOpenHive, onReturnToMap, onEngineInit 
 }) => {
     return (
@@ -30,7 +31,8 @@ export const SurfaceView: React.FC<SurfaceViewProps> = ({
                     <GameCanvas 
                         activeRegion={activeRegion}
                         mode="COMBAT_VIEW"
-                        onEngineInit={onEngineInit} 
+                        onEngineInit={onEngineInit}
+                        isSimulationAuthority={true}
                     />
                     <HUD gameState={gameState} onEvacuate={onEvacuate} activeRegion={activeRegion} />
                     
@@ -44,9 +46,10 @@ export const SurfaceView: React.FC<SurfaceViewProps> = ({
             ) : mode === 'HARVEST_VIEW' ? (
                 <>
                     <GameCanvas 
-                        activeRegion={null} 
+                        activeRegion={harvestRegion || null} 
                         mode="HARVEST_VIEW" 
                         onEngineInit={onEngineInit} 
+                        isSimulationAuthority={true}
                     />
                     <div className="absolute top-4 right-4 z-20">
                         <button 
@@ -55,6 +58,11 @@ export const SurfaceView: React.FC<SurfaceViewProps> = ({
                         >
                             Return to Map
                         </button>
+                    </div>
+                     <div className="absolute top-0 left-0 w-full h-8 bg-gradient-to-b from-green-900/60 to-transparent z-20 pointer-events-none flex items-center px-4 justify-between">
+                        <div className="text-[10px] font-black uppercase tracking-[0.2em] text-green-500">
+                            ● HARVEST OPERATIONS // 资源采集
+                        </div>
                     </div>
                 </>
             ) : (

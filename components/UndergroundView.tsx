@@ -1,4 +1,5 @@
 
+
 import React from 'react';
 import { GameCanvas } from './GameCanvas';
 import { GameEngine } from '../game/GameEngine';
@@ -17,6 +18,7 @@ export const UndergroundView: React.FC<UndergroundViewProps> = ({ onEngineInit, 
                       activeRegion={null}
                       mode="HIVE"
                       onEngineInit={onEngineInit}
+                      isSimulationAuthority={false}
                   />
                   {/* Atmospheric Vignette */}
                   <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/80 pointer-events-none" />

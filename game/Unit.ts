@@ -1,4 +1,5 @@
 
+
 import { Graphics } from 'pixi.js';
 import { IUnit, UnitRuntimeStats, Faction, UnitType, GameModifiers, StatusType, GeneConfig } from '../types';
 import { UNIT_CONFIGS, LANE_Y, LANE_HEIGHT } from '../constants';
@@ -16,7 +17,7 @@ export class Unit implements IUnit {
   attackCooldown: number = 0;
   flashTimer: number = 0;
   context: Record<string, any> = {};
-  state: 'MOVE' | 'ATTACK' | 'IDLE' | 'DEAD' | 'WANDER' | 'HARVEST' | 'RETURN' = 'IDLE';
+  state: 'MOVE' | 'ATTACK' | 'IDLE' | 'DEAD' | 'WANDER' | 'HARVEST' | 'RETURN' | 'SEEK' | 'DEPOSIT' = 'IDLE';
   isDead: boolean = false;
   target: IUnit | null = null;
   decayTimer: number = 0;

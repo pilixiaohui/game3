@@ -7,7 +7,7 @@ interface WorldMapViewProps {
       regions: RegionData[];
   };
   onEnterRegion: (region: RegionData) => void;
-  onOpenHive: () => void;
+  onOpenHive: (region: RegionData) => void;
   activeRegionId?: number;
 }
 
@@ -124,7 +124,7 @@ export const WorldMapView: React.FC<WorldMapViewProps> = ({ globalState, onEnter
                 onClick={() => {
                     if (isLocked) return;
                     if (isCompleted) {
-                        onOpenHive(); // Triggers HARVEST_VIEW
+                        onOpenHive(region); // Triggers HARVEST_VIEW
                     } else {
                         onEnterRegion(region); // Triggers COMBAT_VIEW
                     }

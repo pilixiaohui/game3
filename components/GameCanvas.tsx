@@ -1,4 +1,5 @@
 
+
 import React, { useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
 import { GameEngine } from '../game/GameEngine';
 import { RegionData } from '../types';
@@ -8,9 +9,12 @@ interface GameCanvasProps {
     isCombat?: boolean;
     mode?: 'COMBAT_VIEW' | 'HARVEST_VIEW' | 'HIVE';
     onEngineInit: (engine: GameEngine) => void;
+    isSimulationAuthority?: boolean;
 }
 
-export const GameCanvas = forwardRef<HTMLDivElement, GameCanvasProps>(({ activeRegion, isCombat = true, mode, onEngineInit }, ref) => {
+export const GameCanvas = forwardRef<HTMLDivElement, GameCanvasProps>(({ 
+    activeRegion, isCombat = true, mode, onEngineInit, isSimulationAuthority = false 
+}, ref) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const engineRef = useRef<GameEngine | null>(null);
 
@@ -27,7 +31,9 @@ export const GameCanvas = forwardRef<HTMLDivElement, GameCanvasProps>(({ activeR
             // Clean up previous children
             while (container.firstChild) container.removeChild(container.firstChild);
 
-            engine = new GameEngine();
+            // Pass authority flag here
+            engine = new GameEngine(isSimulationAuthority);
+            
             try {
                 // Configure Engine
                 if (activeRegion) {
@@ -36,20 +42,16 @@ export const GameCanvas = forwardRef<HTMLDivElement, GameCanvasProps>(({ activeR
                 }
                 
                 // Set Mode
-                // If explicit mode passed (HIVE, HARVEST_VIEW, COMBAT_VIEW), use it.
-                // Fallback to activeRegion logic
                 const targetMode = mode ? mode : (activeRegion ? 'COMBAT_VIEW' : 'HIVE');
                 engine.setMode(targetMode);
                 
                 await engine.init(container);
                 
-                // If component unmounted or effect re-ran while initializing
                 if (canceled) {
                     engine.destroy();
                     return;
                 }
                 
-                // Clean up old engine if it exists
                 if (engineRef.current && engineRef.current !== engine) {
                     engineRef.current.destroy();
                 }
@@ -74,7 +76,7 @@ export const GameCanvas = forwardRef<HTMLDivElement, GameCanvasProps>(({ activeR
                 while (container.firstChild) container.removeChild(container.firstChild);
             }
         };
-    }, [onEngineInit, activeRegion, mode]); 
+    }, [onEngineInit, activeRegion, mode, isSimulationAuthority]); 
 
     return <div ref={containerRef} className="absolute inset-0 w-full h-full z-0" />;
 });

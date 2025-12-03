@@ -2,7 +2,7 @@
 import { Graphics, Text, TextStyle } from 'pixi.js';
 import { Faction, GameModifiers, UnitType, GameStateSnapshot, IUnit, IGameEngine, StatusType } from '../types';
 import { ELEMENT_COLORS } from '../constants';
-import { DataManager } from './DataManager';
+import { DataManager, SimpleEventEmitter } from './DataManager';
 import { SpatialHash } from './SpatialHash';
 import { WorldRenderer } from './renderers/WorldRenderer';
 import { UnitPool } from './Unit';
@@ -18,14 +18,17 @@ export class GameEngine implements IGameEngine {
   public unitPool: UnitPool | null = null;
   public spatialHash: SpatialHash;
   public _sharedQueryBuffer: IUnit[] = [];
+  public events: SimpleEventEmitter;
   
-  // Public accessors for interface compliance, delegated to systems where possible
+  // Authority: If true, this engine instance is responsible for updating the DataManager (Game Heartbeat)
+  public isSimulationAuthority: boolean = false;
+  
   public get activeObstacles() { return this.levelManager.activeObstacles; }
   public set activeRegionId(id: number) { this.levelManager.activeRegionId = id; }
   public get activeRegionId() { return this.levelManager.activeRegionId; }
   public set humanDifficultyMultiplier(val: number) { /* handled in spawning */ }
   
-  public cameraX: number = 0; // Mirrored from LevelManager for consistency
+  public cameraX: number = 0; 
   private userZoom: number = 1.0;
   public isPaused: boolean = false;
   
@@ -37,12 +40,14 @@ export class GameEngine implements IGameEngine {
   private hiveVisualSystem!: HiveVisualSystem;
   private levelManager!: LevelManager;
 
-  constructor() {
+  constructor(isAuthority: boolean = false) {
     this.spatialHash = new SpatialHash(100);
+    this.events = new SimpleEventEmitter();
+    this.isSimulationAuthority = isAuthority;
   }
 
   async init(element: HTMLElement) {
-    this.renderer = new WorldRenderer(element);
+    this.renderer = new WorldRenderer(element, this.events);
     this.unitPool = new UnitPool(1500, this.renderer);
     
     // Initialize Systems
@@ -101,7 +106,7 @@ export class GameEngine implements IGameEngine {
       } else if (this.mode === 'COMBAT_VIEW') {
           this.levelManager.loadRegion(this.activeRegionId);
       } else if (this.mode === 'HARVEST_VIEW') {
-          this.harvestSystem.init();
+          this.harvestSystem.init(this.activeRegionId);
       }
       
       if (this.unitPool) {
@@ -115,6 +120,11 @@ export class GameEngine implements IGameEngine {
     if (this.isPaused || !this.renderer) return;
     const dt = delta / 60; 
 
+    // UNIFIED HEARTBEAT: Only the Authority drives the Data Manager
+    if (this.isSimulationAuthority) {
+        DataManager.instance.updateTick(dt);
+    }
+
     // Route Logic by Mode
     if (this.mode === 'HIVE') {
         this.hiveVisualSystem.update(dt);
@@ -125,11 +135,14 @@ export class GameEngine implements IGameEngine {
         this.renderer.updateParticles(dt);
         return;
     } else if (this.mode === 'COMBAT_VIEW') {
-        this.combatSystem.update(dt);
-        this.levelManager.update(dt, this.unitPool?.getActiveUnits() || []);
+        // If we are NOT the authority (unlikely for Combat View, but good practice), we shouldn't run logic that mutates state
+        if (this.isSimulationAuthority) {
+            this.combatSystem.update(dt);
+            this.levelManager.update(dt, this.unitPool?.getActiveUnits() || []);
+        }
     }
 
-    // Common Updates
+    // Visual Updates (Run on both engines)
     const allUnits = this.unitPool?.getActiveUnits() || [];
     for (const u of allUnits) {
         this.renderer.updateUnitVisuals(u, this.mode);
@@ -137,7 +150,7 @@ export class GameEngine implements IGameEngine {
     this.renderer.updateParticles(dt);
   }
 
-  // --- IGameEngine Implementations (Proxy to Render or Logic) ---
+  // --- IGameEngine Implementations (Event Emitters) ---
   
   public spawnUnit(faction: Faction, type: UnitType, x: number): IUnit | null {
       const level = (faction === Faction.HUMAN) ? (this.levelManager.currentStageIndex + 1) : 1;
@@ -158,44 +171,40 @@ export class GameEngine implements IGameEngine {
       };
   }
   
-  // Delegated Combat Logic
   public dealTrueDamage(target: IUnit, amount: number) { this.combatSystem.dealTrueDamage(target, amount); }
   public killUnit(u: IUnit) { this.combatSystem.killUnit(u); }
   public applyStatus(target: IUnit, type: StatusType, stacks: number, duration: number) { this.combatSystem.applyStatus(target, type, stacks, duration); }
   public processDamagePipeline(source: IUnit, target: IUnit) { this.combatSystem.processDamagePipeline(source, target); }
   public performAttack(source: IUnit, target: IUnit) { this.combatSystem.performAttack(source, target); }
   
-  // Visuals (Kept simple here or delegated to renderer)
-  public createExplosion(x: number, y: number, radius: number, color: number = 0xffaa00) { this.createParticles(x, y, color, 10); this.createShockwave(x, y, radius, color); }
-  public createFlash(x: number, y: number, color: number) {
-      const g = new Graphics(); g.beginFill(color); g.drawCircle(0, 0, 20); g.endFill(); g.position.set(x, y);
-      this.renderer?.addParticle({ view: g, type: 'GRAPHICS', life: 0.1, maxLife: 0.1, update: (p:any, dt:number) => { p.life -= dt; p.view.alpha = p.life/p.maxLife; return p.life > 0; } });
+  // FX Methods - Now Decoupled via Events
+  public createExplosion(x: number, y: number, radius: number, color: number = 0xffaa00) { 
+      this.events.emit('FX', { type: 'EXPLOSION', x, y, radius, color }); 
+  }
+  public createFlash(x: number, y: number, color: number) { 
+      this.events.emit('FX', { type: 'FLASH', x, y, color });
   }
   public createProjectile(x1: number, y1: number, x2: number, y2: number, color: number) {
-      const g = new Graphics(); g.lineStyle(2, color); g.moveTo(0,0); g.lineTo(x2-x1, y2-y1); g.position.set(x1, y1);
-      this.renderer?.addParticle({ view: g, type: 'GRAPHICS', life: 0.1, maxLife: 0.1, update: (p:any, dt:number) => { p.life -= dt; p.view.alpha = p.life/p.maxLife; return p.life > 0; } });
+      this.events.emit('FX', { type: 'PROJECTILE', x: x1, y: y1, x2, y2, color });
   }
   public createFloatingText(x: number, y: number, text: string, color: number, fontSize: number = 12) {
-      const t = new Text(text, new TextStyle({ fontSize, fill: color, fontWeight: 'bold' })); t.anchor.set(0.5); t.position.set(x, y);
-      this.renderer?.addParticle({ view: t, type: 'TEXT', life: 0.8, maxLife: 0.8, update: (p:any, dt:number) => { p.life -= dt; p.view.y -= 20 * dt; p.view.alpha = p.life/p.maxLife; return p.life > 0; } });
+      this.events.emit('FX', { type: 'TEXT', x, y, text, color, fontSize });
   }
-  public createDamagePop(x: number, y: number, value: number, element: string) { this.createFloatingText(x, y, Math.floor(value).toString(), ELEMENT_COLORS[element as keyof typeof ELEMENT_COLORS] || 0xffffff, 14); }
+  public createDamagePop(x: number, y: number, value: number, element: string) { 
+      this.createFloatingText(x, y, Math.floor(value).toString(), ELEMENT_COLORS[element as keyof typeof ELEMENT_COLORS] || 0xffffff, 14); 
+  }
   public createSlash(x: number, y: number, targetX: number, targetY: number, color: number) {
-      const g = new Graphics(); g.lineStyle(2, color); g.moveTo(x - 10, y - 10); g.lineTo(targetX + 10, targetY + 10); g.moveTo(x + 10, y - 10); g.lineTo(targetX - 10, targetY + 10);
-      this.renderer?.addParticle({ view: g, type: 'GRAPHICS', life: 0.1, maxLife: 0.1, update: (p:any, dt:number) => { p.life -= dt; p.view.alpha = p.life; return p.life > 0; } });
+      this.events.emit('FX', { type: 'SLASH', x, y, targetX, targetY, color });
   }
   public createShockwave(x: number, y: number, radius: number, color: number) {
-      const g = new Graphics(); g.lineStyle(2, color); g.drawCircle(0, 0, radius); g.position.set(x, y);
-      this.renderer?.addParticle({ view: g, type: 'GRAPHICS', life: 0.3, maxLife: 0.3, update: (p:any, dt:number) => { p.life -= dt; p.view.scale.set(1 + (1 - p.life/p.maxLife)); p.view.alpha = p.life/p.maxLife; return p.life > 0; } });
+      this.events.emit('FX', { type: 'SHOCKWAVE', x, y, radius, color });
   }
   public createParticles(x: number, y: number, color: number, count: number) {
-      for(let i=0; i<count; i++) {
-          const g = new Graphics(); g.beginFill(color); g.drawRect(0,0,3,3); g.endFill(); g.position.set(x, y);
-          const vx = (Math.random() - 0.5) * 100; const vy = (Math.random() - 0.5) * 100;
-          this.renderer?.addParticle({ view: g, type: 'GRAPHICS', life: 0.5, maxLife: 0.5, update: (p:any, dt:number) => { p.life -= dt; p.view.x += vx * dt; p.view.y += vy * dt; p.view.alpha = p.life/p.maxLife; return p.life > 0; } });
-      }
+      this.events.emit('FX', { type: 'PARTICLES', x, y, color, count });
   }
-  public createHealEffect(x: number, y: number) { this.createFloatingText(x, y - 10, "+", 0x00ff00, 14); }
+  public createHealEffect(x: number, y: number) { 
+      this.events.emit('FX', { type: 'HEAL', x, y });
+  }
   
   public destroy() { this.renderer?.destroy(); }
 }

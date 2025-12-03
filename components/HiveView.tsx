@@ -29,15 +29,28 @@ export const HiveView: React.FC<HiveViewProps> = ({
 }) => {
   const [activeSection, setActiveSection] = useState<HiveSection | null>(null); 
   const [activeTopMode, setActiveTopMode] = useState<TopViewMode>('WORLD_MAP');
+  const [harvestRegion, setHarvestRegion] = useState<RegionData | null>(null);
 
-  // Sync Top Mode with activeRegion
+  // Sync Top Mode with activeRegion (Combat Priority)
   useEffect(() => {
       if (activeRegion) {
           setActiveTopMode('COMBAT_VIEW');
-      } else {
+          setHarvestRegion(null);
+      } else if (activeTopMode === 'COMBAT_VIEW') {
+          // If we were in combat view but no longer have an active region, reset
           setActiveTopMode('WORLD_MAP');
       }
   }, [activeRegion]);
+
+  const handleOpenHarvest = (region: RegionData) => {
+      setHarvestRegion(region);
+      setActiveTopMode('HARVEST_VIEW');
+  };
+
+  const handleReturnToMap = () => {
+      setHarvestRegion(null);
+      setActiveTopMode('WORLD_MAP');
+  };
 
   // Stable reference for Hive engine init
   const onHiveEngineInit = useCallback((engine: GameEngine) => {
@@ -63,11 +76,12 @@ export const HiveView: React.FC<HiveViewProps> = ({
                 globalState={globalState}
                 gameState={gameState}
                 activeRegion={activeRegion}
+                harvestRegion={harvestRegion}
                 mapRegions={mapRegions}
                 onEnterRegion={onEnterRegion}
                 onEvacuate={onEvacuate}
-                onOpenHive={() => setActiveTopMode('HARVEST_VIEW')}
-                onReturnToMap={() => setActiveTopMode('WORLD_MAP')}
+                onOpenHive={handleOpenHarvest}
+                onReturnToMap={handleReturnToMap}
                 onEngineInit={onEngineInit}
             />
         </div>
