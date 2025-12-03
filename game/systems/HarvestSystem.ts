@@ -1,5 +1,4 @@
 
-
 import { UnitPool, Unit } from '../Unit';
 import { DataManager, SimpleEventEmitter } from '../DataManager';
 import { Faction, UnitType, HarvestNodeDef } from '../../types';
@@ -110,7 +109,7 @@ export class HarvestSystem {
                      const dist = Math.sqrt(distSq);
                      u.x += (dx/dist) * u.stats.speed * dt;
                      u.y += (dy/dist) * u.stats.speed * dt;
-                     u.steeringForce.x = dx; // For visual facing
+                     u.steeringForce.x = dx; // Logic data for visual facing (handled by renderer)
                  }
              } else {
                  u.state = 'IDLE';
@@ -145,7 +144,7 @@ export class HarvestSystem {
              // Instant deposit
              DataManager.instance.modifyResource('biomass', u.context.carryAmount);
              
-             // Visual Feedback
+             // Request Visual Feedback via Event Bus
              this.events.emit('FX', { 
                  type: 'TEXT', 
                  x: u.x, 

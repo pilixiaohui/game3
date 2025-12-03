@@ -28,7 +28,7 @@ export class LevelManager {
     }
 
     public update(dt: number, activeUnits: any[]) {
-        // Camera Follow Logic (Logic only, used by Engine to set Renderer prop)
+        // Camera Follow Logic (Calculates data, doesn't render)
         let targetX = this.cameraX;
         let leadZergX = -99999;
         let zergCount = 0;
@@ -65,7 +65,7 @@ export class LevelManager {
             health: def.health 
         }));
         
-        // Strictly event-driven update
+        // Notify renderer via event
         this.events.emit('TERRAIN_UPDATE', this.activeObstacles);
         
         // Spawn Enemies
