@@ -24,7 +24,10 @@ export const GameCanvas = forwardRef<HTMLDivElement, GameCanvasProps>(({
         const container = containerRef.current;
         if (!container) return;
 
-        let engine: GameEngine | undefined;
+        // Prevent double init in Strict Mode
+        if (engineRef.current) return;
+
+        let engine: GameEngine;
 
         const initGame = async () => {
              // Clean up previous children
@@ -38,14 +41,18 @@ export const GameCanvas = forwardRef<HTMLDivElement, GameCanvasProps>(({
                 await engine.init(container);
                 onEngineInit(engine);
                 
-                // Trigger initial update manually once to ensure state is synced
-                if (activeRegion) engine.activeRegionId = activeRegion.id;
-                const targetMode = mode ? mode : (activeRegion ? 'COMBAT_VIEW' : 'HIVE');
-                engine.setMode(targetMode);
+                // Set initial state immediately after init
+                if (activeRegion) {
+                    engine.activeRegionId = activeRegion.id;
+                    engine.humanDifficultyMultiplier = activeRegion.difficultyMultiplier;
+                }
+                const initialMode = mode ? mode : (activeRegion ? 'COMBAT_VIEW' : 'HIVE');
+                engine.setMode(initialMode);
 
             } catch (err) {
                 console.error("GameEngine init failed:", err);
                 engine.destroy();
+                engineRef.current = null;
             }
         };
 
@@ -67,10 +74,13 @@ export const GameCanvas = forwardRef<HTMLDivElement, GameCanvasProps>(({
         const engine = engineRef.current;
         if (!engine) return;
 
-        // Update Region
+        // Update Region Data
         if (activeRegion) {
             engine.humanDifficultyMultiplier = activeRegion.difficultyMultiplier;
-            engine.activeRegionId = activeRegion.id;
+            // Only update activeRegionId if it changed to avoid reloading logic inside engine
+            if (engine.activeRegionId !== activeRegion.id) {
+                engine.activeRegionId = activeRegion.id;
+            }
         }
 
         // Update Mode

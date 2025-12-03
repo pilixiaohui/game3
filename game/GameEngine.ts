@@ -12,6 +12,8 @@ import { CombatSystem } from './systems/CombatSystem';
 import { HarvestSystem } from './systems/HarvestSystem';
 import { HiveVisualSystem } from './systems/HiveVisualSystem';
 import { DeploymentSystem } from './systems/DeploymentSystem';
+import { MetabolismSystem } from './systems/MetabolismSystem';
+import { ProductionSystem } from './systems/ProductionSystem';
 import { LevelManager } from './managers/LevelManager';
 
 export class GameEngine implements IGameEngine {
@@ -48,6 +50,10 @@ export class GameEngine implements IGameEngine {
   private hiveVisualSystem!: HiveVisualSystem;
   private deploymentSystem!: DeploymentSystem;
   private levelManager!: LevelManager;
+  
+  // Authority Systems (Only exist if isSimulationAuthority = true)
+  private metabolismSystem?: MetabolismSystem;
+  private productionSystem?: ProductionSystem;
 
   constructor(isAuthority: boolean = false) {
     this.spatialHash = new SpatialHash(100);
@@ -58,6 +64,11 @@ export class GameEngine implements IGameEngine {
     this.events.on('REQUEST_SPAWN', (data: any) => {
         this.spawnUnit(data.faction, data.type, data.x);
     });
+
+    if (this.isSimulationAuthority) {
+        this.metabolismSystem = new MetabolismSystem();
+        this.productionSystem = new ProductionSystem();
+    }
   }
 
   async init(element: HTMLElement) {
@@ -106,7 +117,7 @@ export class GameEngine implements IGameEngine {
   public setMode(mode: 'COMBAT_VIEW' | 'HIVE' | 'HARVEST_VIEW') {
       if (this.mode === mode) return;
       
-      // Cleanup previous mode
+      // Cleanup previous mode logic & events
       this.cleanupCurrentMode();
       
       this.mode = mode;
@@ -114,13 +125,11 @@ export class GameEngine implements IGameEngine {
   }
 
   private cleanupCurrentMode() {
-      if (this.mode === 'COMBAT_VIEW') {
-          this.combatSystem.disable(); // Important: Remove event listeners
-      } else if (this.mode === 'HARVEST_VIEW') {
-          this.harvestSystem.cleanup();
-      } else if (this.mode === 'HIVE') {
-          this.hiveVisualSystem.cleanup();
-      }
+      // Must disable systems to unbind events
+      this.combatSystem.disable();
+      this.deploymentSystem.isEnabled = false;
+      this.harvestSystem.cleanup();
+      this.hiveVisualSystem.cleanup();
   }
 
   private applyModeSettings() {
@@ -133,11 +142,13 @@ export class GameEngine implements IGameEngine {
           this.hiveVisualSystem.init();
       } else if (this.mode === 'COMBAT_VIEW') {
           this.combatSystem.enable(); // Re-attach event listeners
+          this.deploymentSystem.isEnabled = true;
           this.levelManager.loadRegion(this.activeRegionId);
       } else if (this.mode === 'HARVEST_VIEW') {
           this.harvestSystem.init(this.activeRegionId);
       }
       
+      // Clear all active units when switching views to prevent ghost visuals
       if (this.unitPool) {
           const activeUnits = this.unitPool.getActiveUnits();
           activeUnits.forEach(u => this.unitPool!.recycle(u));
@@ -152,7 +163,8 @@ export class GameEngine implements IGameEngine {
     // --- 1. GLOBAL ECONOMY AUTHORITY ---
     // Only the designated authority (UndergroundView) drives the global data store tick.
     if (this.isSimulationAuthority) {
-        DataManager.instance.updateTick(dt);
+        this.metabolismSystem?.update(dt, DataManager.instance);
+        this.productionSystem?.update(dt, DataManager.instance);
     }
 
     // --- 2. LOCAL SIMULATION LOOP ---
@@ -213,5 +225,7 @@ export class GameEngine implements IGameEngine {
   public destroy() { 
       this.cleanupCurrentMode();
       this.renderer?.destroy(); 
+      // Stop listeners if any
+      this.events.off('REQUEST_SPAWN', () => {});
   }
 }

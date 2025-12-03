@@ -1,8 +1,6 @@
 
 import { GameSaveData, UnitType, UnitRuntimeStats, Resources, GameModifiers, BioPluginConfig, PluginInstance, ElementType } from '../types';
 import { INITIAL_GAME_STATE, UNIT_CONFIGS, UNIT_UPGRADE_COST_BASE, RECYCLE_REFUND_RATE, METABOLISM_FACILITIES, MAX_RESOURCES_BASE, BIO_PLUGINS, CAP_UPGRADE_BASE, EFFICIENCY_UPGRADE_BASE, QUEEN_UPGRADE_BASE, INITIAL_LARVA_CAP, CLICK_CONFIG, INITIAL_REGIONS_CONFIG } from '../constants';
-import { MetabolismSystem } from './systems/MetabolismSystem';
-import { ProductionSystem } from './systems/ProductionSystem';
 
 export type Listener = (data: any) => void;
 
@@ -43,18 +41,12 @@ export class DataManager {
         doubleSpawnChance: 0.0,
     };
 
-    private metabolismSystem: MetabolismSystem;
-    private productionSystem: ProductionSystem;
-
     private constructor() {
         this.events = new SimpleEventEmitter();
         this.state = JSON.parse(JSON.stringify(INITIAL_GAME_STATE));
-        this.metabolismSystem = new MetabolismSystem();
-        this.productionSystem = new ProductionSystem();
         this.loadGame();
         
-        // STRICT: No internal game loop (setInterval).
-        // The game loop is driven externally by the Authority View (UndergroundView) via updateTick().
+        // DataManager only handles auto-save. The simulation tick is driven by GameEngine (Authority).
         this.autoSaveInterval = setInterval(() => this.saveGame(), 30000);
     }
 
@@ -63,15 +55,6 @@ export class DataManager {
             this._instance = new DataManager();
         }
         return this._instance;
-    }
-
-    // Called externally by the Authority GameEngine (UndergroundView)
-    public updateTick(dt: number) {
-        const safeDt = Math.min(dt, 1.0);
-        
-        // System Updates
-        this.metabolismSystem.update(safeDt * this.modifiers.resourceRateMultiplier, this); 
-        this.productionSystem.update(safeDt, this);
     }
 
     public saveGame() {
@@ -214,7 +197,8 @@ export class DataManager {
             this.saveGame();
             this.events.emit('PRODUCTION_CHANGED', {});
             
-            if (key === 'STORAGE' || key === 'SUPPLY') {
+            // Check specific keys that affect global caps
+            if (config.stateKey === 'storageCount' || config.stateKey === 'supplyCount') {
                  this.events.emit('RESOURCE_CHANGED', {});
             }
         }
