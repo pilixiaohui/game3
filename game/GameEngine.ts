@@ -1,7 +1,6 @@
 
-
 import { Graphics, Text, TextStyle } from 'pixi.js';
-import { Faction, GameModifiers, UnitType, GameStateSnapshot, IUnit, IGameEngine, StatusType, ElementType } from '../types';
+import { Faction, GameModifiers, UnitType, GameStateSnapshot, IUnit, IGameEngine, StatusType, ElementType, ObstacleDef } from '../types';
 import { ELEMENT_COLORS } from '../constants';
 import { DataManager, SimpleEventEmitter } from './DataManager';
 import { SpatialHash } from './SpatialHash';
@@ -24,10 +23,13 @@ export class GameEngine implements IGameEngine {
   // Authority: If true, this engine instance is responsible for updating the DataManager (Game Heartbeat)
   public isSimulationAuthority: boolean = false;
   
-  public get activeObstacles() { return this.levelManager.activeObstacles; }
   public set activeRegionId(id: number) { this.levelManager.activeRegionId = id; }
   public get activeRegionId() { return this.levelManager.activeRegionId; }
   public set humanDifficultyMultiplier(val: number) { /* handled in spawning */ }
+
+  public get activeObstacles(): ObstacleDef[] {
+      return this.levelManager ? this.levelManager.activeObstacles : [];
+  }
   
   public cameraX: number = 0; 
   private userZoom: number = 1.0;

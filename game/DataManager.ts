@@ -1,5 +1,4 @@
 
-
 import { GameSaveData, UnitType, UnitRuntimeStats, Resources, GameModifiers, BioPluginConfig, PluginInstance, ElementType } from '../types';
 import { INITIAL_GAME_STATE, UNIT_CONFIGS, UNIT_UPGRADE_COST_BASE, RECYCLE_REFUND_RATE, METABOLISM_FACILITIES, MAX_RESOURCES_BASE, BIO_PLUGINS, CAP_UPGRADE_BASE, EFFICIENCY_UPGRADE_BASE, QUEEN_UPGRADE_BASE, INITIAL_LARVA_CAP, CLICK_CONFIG, INITIAL_REGIONS_CONFIG } from '../constants';
 import { MetabolismSystem } from './systems/MetabolismSystem';
@@ -50,6 +49,9 @@ export class DataManager {
         this.state = JSON.parse(JSON.stringify(INITIAL_GAME_STATE));
         this.metabolismSystem = new MetabolismSystem();
         this.loadGame();
+        
+        // STRICT: No internal game loop (setInterval).
+        // The game loop is driven externally by the Authority View (UndergroundView) via updateTick().
         this.autoSaveInterval = setInterval(() => this.saveGame(), 30000);
     }
 
@@ -60,7 +62,7 @@ export class DataManager {
         return this._instance;
     }
 
-    // Called externally by the Authority GameEngine
+    // Called externally by the Authority GameEngine (UndergroundView)
     public updateTick(dt: number) {
         const safeDt = Math.min(dt, 1.0);
         this.metabolismSystem.update(safeDt * this.modifiers.resourceRateMultiplier, this); 
@@ -630,6 +632,10 @@ export class DataManager {
     public updateRegionProgress(id: number, delta: number) {
         if (!this.state.world.regions[id]) return;
         const regionConfig = INITIAL_REGIONS_CONFIG.find(r => r.id === id);
-        // ... (truncated in original file, keeping as is)
+        if (regionConfig) {
+             this.state.world.regions[id].devourProgress = Math.min(regionConfig.totalStages, this.state.world.regions[id].devourProgress + delta);
+             this.events.emit('REGION_PROGRESS', { id, progress: this.state.world.regions[id].devourProgress });
+             this.saveGame();
+        }
     }
 }

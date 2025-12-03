@@ -32,7 +32,7 @@ export const SurfaceView: React.FC<SurfaceViewProps> = ({
                         activeRegion={activeRegion}
                         mode="COMBAT_VIEW"
                         onEngineInit={onEngineInit}
-                        isSimulationAuthority={false}
+                        isSimulationAuthority={false} // STRICT: SurfaceView must NEVER drive the heartbeat
                     />
                     <HUD gameState={gameState} onEvacuate={onEvacuate} activeRegion={activeRegion} />
                     
@@ -49,7 +49,7 @@ export const SurfaceView: React.FC<SurfaceViewProps> = ({
                         activeRegion={harvestRegion || null} 
                         mode="HARVEST_VIEW" 
                         onEngineInit={onEngineInit} 
-                        isSimulationAuthority={false}
+                        isSimulationAuthority={false} // STRICT: SurfaceView must NEVER drive the heartbeat
                     />
                     <div className="absolute top-4 right-4 z-20">
                         <button 

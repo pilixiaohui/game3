@@ -440,7 +440,6 @@ export interface IGameEngine {
         query: (x: number, y: number, radius: number, out: IUnit[]) => number;
     };
     _sharedQueryBuffer: IUnit[]; 
-    activeObstacles: ObstacleDef[];
     events: { emit: (event: string, data?: any) => void };
     
     setMode(mode: 'COMBAT_VIEW' | 'HARVEST_VIEW' | 'HIVE', params?: any): void;
