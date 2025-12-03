@@ -20,7 +20,8 @@ export class GameEngine implements IGameEngine {
   public _sharedQueryBuffer: IUnit[] = [];
   public events: SimpleEventEmitter;
   
-  // Authority: If true, this engine instance is responsible for updating the DataManager (Game Heartbeat)
+  // Authority: If true, this engine instance is responsible for updating the DataManager (Game Heartbeat/Economy)
+  // If false, it only runs visual simulation and local combat prediction (Surface View)
   public isSimulationAuthority: boolean = false;
   
   public set activeRegionId(id: number) { this.levelManager.activeRegionId = id; }
@@ -124,12 +125,16 @@ export class GameEngine implements IGameEngine {
     if (this.isPaused || !this.renderer) return;
     const dt = delta / 60; 
 
-    // UNIFIED HEARTBEAT: Only the Authority drives the Data Manager
+    // --- 1. GLOBAL ECONOMY AUTHORITY ---
+    // Only the designated authority (UndergroundView) drives the global data store tick.
     if (this.isSimulationAuthority) {
         DataManager.instance.updateTick(dt);
     }
 
-    // Route Logic by Mode
+    // --- 2. LOCAL SIMULATION LOOP ---
+    // These run REGARDLESS of authority. If we are in SurfaceView (non-authority),
+    // we still need to run the combat physics so the user sees the battle happening.
+    
     if (this.mode === 'HIVE') {
         this.hiveVisualSystem.update(dt);
         this.renderer.updateParticles(dt);
@@ -139,6 +144,8 @@ export class GameEngine implements IGameEngine {
         this.renderer.updateParticles(dt);
         return;
     } else if (this.mode === 'COMBAT_VIEW') {
+        // [CRITICAL FIX] DO NOT wrap this in isSimulationAuthority check!
+        // Combat must run on the SurfaceView even if it's not the economy authority.
         this.combatSystem.update(dt);
         this.levelManager.update(dt, this.unitPool?.getActiveUnits() || []);
         
