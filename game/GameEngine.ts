@@ -1,7 +1,7 @@
 
 
 import { Graphics, Text, TextStyle } from 'pixi.js';
-import { Faction, GameModifiers, UnitType, GameStateSnapshot, IUnit, IGameEngine, StatusType } from '../types';
+import { Faction, GameModifiers, UnitType, GameStateSnapshot, IUnit, IGameEngine, StatusType, ElementType } from '../types';
 import { ELEMENT_COLORS } from '../constants';
 import { DataManager, SimpleEventEmitter } from './DataManager';
 import { SpatialHash } from './SpatialHash';
@@ -180,9 +180,8 @@ export class GameEngine implements IGameEngine {
   public applyStatus(target: IUnit, type: StatusType, stacks: number, duration: number) { this.combatSystem.applyStatus(target, type, stacks, duration); }
   public processDamagePipeline(source: IUnit, target: IUnit) { this.combatSystem.processDamagePipeline(source, target); }
   public performAttack(source: IUnit, target: IUnit) { this.combatSystem.performAttack(source, target); }
-  
-  // FX Implementations required by IGameEngine
-  public createExplosion(x: number, y: number, radius: number, color: number = 0xFFFFFF) {
+
+  public createExplosion(x: number, y: number, radius: number, color?: number) {
       this.events.emit('FX', { type: 'EXPLOSION', x, y, radius, color });
   }
 
@@ -194,15 +193,21 @@ export class GameEngine implements IGameEngine {
       this.events.emit('FX', { type: 'PROJECTILE', x: x1, y: y1, x2, y2, color });
   }
 
-  public createFloatingText(x: number, y: number, text: string, color: number, fontSize: number = 12) {
+  public createFloatingText(x: number, y: number, text: string, color: number, fontSize?: number) {
       this.events.emit('FX', { type: 'TEXT', x, y, text, color, fontSize });
   }
 
   public createDamagePop(x: number, y: number, value: number, element: string) {
-      const color = ELEMENT_COLORS[element as keyof typeof ELEMENT_COLORS] || 0xFFFFFF;
-      this.events.emit('FX', { type: 'DAMAGE_POP', x, y, text: Math.floor(value).toString(), color, fontSize: 14 });
+      const color = ELEMENT_COLORS[element as ElementType] || 0xffffff;
+      this.events.emit('FX', { 
+          type: 'DAMAGE_POP', 
+          x, y: y - 10, 
+          text: Math.floor(value).toString(), 
+          color, 
+          fontSize: 14 
+      });
   }
-
+  
   public createSlash(x: number, y: number, targetX: number, targetY: number, color: number) {
       this.events.emit('FX', { type: 'SLASH', x, y, targetX, targetY, color });
   }

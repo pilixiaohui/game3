@@ -149,10 +149,10 @@ export class HarvestSystem {
              this.events.emit('FX', { 
                  type: 'TEXT', 
                  x: u.x, 
-                 y: u.y - 20, 
+                 y: u.y - 30, 
                  text: '+' + Math.floor(u.context.carryAmount), 
                  color: 0x4ade80, // Green
-                 fontSize: 10 
+                 fontSize: 14 // Larger font for deposits
              });
 
              u.context.carryAmount = 0;

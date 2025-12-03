@@ -1,4 +1,5 @@
 
+
 import { ChunkTemplate } from '../types';
 
 export const TERRAIN_CHUNKS: Record<string, ChunkTemplate[]> = {
@@ -46,6 +47,44 @@ export const TERRAIN_CHUNKS: Record<string, ChunkTemplate[]> = {
                 { type: 'WALL', x: 1100, y: 0, width: 30, height: 400, health: 3000, maxHealth: 3000 }
             ],
             spawnPoints: [{ x: 1000, y: 0, type: 'HUMAN_RIOT' }, { x: 1050, y: 100, type: 'HUMAN_RIOT' }]
+        },
+        {
+            id: 'narrow_pass',
+            width: 1200,
+            obstacles: [
+                { type: 'WALL', x: 600, y: -100, width: 200, height: 400, health: 8000, maxHealth: 8000 },
+                { type: 'WALL', x: 600, y: 400, width: 200, height: 400, health: 8000, maxHealth: 8000 },
+            ],
+            spawnPoints: [
+                { x: 700, y: 150, type: 'HUMAN_FLAME_TANK' },
+                { x: 750, y: 150, type: 'HUMAN_PYRO' }
+            ]
+        },
+        {
+            id: 'split_decision',
+            width: 1200,
+            obstacles: [
+                { type: 'WALL', x: 600, y: 150, width: 400, height: 60, health: 10000, maxHealth: 10000 }, // Center block
+            ],
+            spawnPoints: [
+                { x: 600, y: 50, type: 'HUMAN_SNIPER' },
+                { x: 600, y: 250, type: 'HUMAN_SNIPER' },
+                { x: 900, y: 150, type: 'HUMAN_BUNKER' }
+            ]
+        },
+        {
+            id: 'zigzag_corridor',
+            width: 1200,
+            obstacles: [
+                { type: 'WALL', x: 300, y: 0, width: 20, height: 300, health: 5000, maxHealth: 5000 },
+                { type: 'WALL', x: 600, y: 300, width: 20, height: 300, health: 5000, maxHealth: 5000 },
+                { type: 'WALL', x: 900, y: 0, width: 20, height: 300, health: 5000, maxHealth: 5000 },
+            ],
+            spawnPoints: [
+                { x: 400, y: 250, type: 'HUMAN_SHOTGUN' }, // Fallback to Militia if SHOTGUN not def
+                { x: 700, y: 50, type: 'HUMAN_GRENADIER' },
+                { x: 1000, y: 250, type: 'HUMAN_TURRET_MG' }
+            ]
         }
     ]
 };
