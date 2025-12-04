@@ -77,7 +77,7 @@ export class GameEngine implements IGameEngine {
     // 1. Create Renderer Instance
     this.renderer = new WorldRenderer(element, this.events);
     
-    // 2. Wait for Asynchronous PixiJS v8 Initialization
+    // 2. Wait for Initialization (Assets load)
     await this.renderer.init();
 
     // 3. Create Systems dependent on Renderer
@@ -90,13 +90,13 @@ export class GameEngine implements IGameEngine {
     this.hiveVisualSystem = new HiveVisualSystem(this.unitPool, this.renderer);
     this.deploymentSystem = new DeploymentSystem(this.unitPool, this.levelManager, this.events);
 
-    // @ts-ignore
-    // Use canvas instead of view for v8
-    this.renderer.app.canvas.addEventListener('wheel', this.handleWheel, { passive: false });
-    this.renderer.app.renderer.on('resize', this.resize.bind(this));
+    // V7 Compatibility: Use app.view
+    const canvas = this.renderer.app!.view as unknown as HTMLCanvasElement;
+    canvas.addEventListener('wheel', this.handleWheel, { passive: false });
+    this.renderer.app!.renderer.on('resize', this.resize.bind(this));
     this.resize(); 
 
-    this.renderer.app.ticker.add(this.update.bind(this));
+    this.renderer.app!.ticker.add(this.update.bind(this));
     this.applyModeSettings();
   }
 
@@ -108,7 +108,7 @@ export class GameEngine implements IGameEngine {
   }
 
   private resize() {
-      if (!this.renderer) return;
+      if (!this.renderer || !this.renderer.app) return;
       const w = this.renderer.app.screen.width;
       const h = this.renderer.app.screen.height;
       
