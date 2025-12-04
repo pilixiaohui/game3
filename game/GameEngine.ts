@@ -1,4 +1,3 @@
-
 import { Graphics, Text, TextStyle } from 'pixi.js';
 import { Faction, GameModifiers, UnitType, GameStateSnapshot, IUnit, IGameEngine, StatusType, ElementType, ObstacleDef } from '../types';
 import { ELEMENT_COLORS, UNIT_SCREEN_CAPS } from '../constants';
@@ -75,12 +74,13 @@ export class GameEngine implements IGameEngine {
   }
 
   async init(element: HTMLElement) {
+    // 1. Create Renderer Instance
     this.renderer = new WorldRenderer(element, this.events);
     
-    // Asynchronous PixiJS v8 Initialization
+    // 2. Wait for Asynchronous PixiJS v8 Initialization
     await this.renderer.init();
 
-    // UnitPool depends on renderer being ready
+    // 3. Create Systems dependent on Renderer
     this.unitPool = new UnitPool(1500, this.renderer);
     
     // Initialize Systems
@@ -91,6 +91,7 @@ export class GameEngine implements IGameEngine {
     this.deploymentSystem = new DeploymentSystem(this.unitPool, this.levelManager, this.events);
 
     // @ts-ignore
+    // Use canvas instead of view for v8
     this.renderer.app.canvas.addEventListener('wheel', this.handleWheel, { passive: false });
     this.renderer.app.renderer.on('resize', this.resize.bind(this));
     this.resize(); 
@@ -232,6 +233,7 @@ export class GameEngine implements IGameEngine {
   
   public destroy() { 
       this.cleanupCurrentMode();
+      // Ensure renderer exists before destroying to avoid race condition
       this.renderer?.destroy(); 
       // Stop listeners safely
       this.events.off('REQUEST_SPAWN', this.spawnListener);
