@@ -5,11 +5,8 @@ export class AssetManager {
     private static _instance: AssetManager;
     private textures: Map<string, Texture> = new Map();
     
-    // Mapping UnitTypes to asset URLs. 
-    // Currently empty/placeholders. Add real paths here when assets are available.
     private manifest: Partial<Record<UnitType, string>> = {
         // [UnitType.MELEE]: '/assets/zergling.png',
-        // [UnitType.RANGED]: '/assets/hydralisk.png',
     };
 
     private constructor() {}
@@ -20,6 +17,12 @@ export class AssetManager {
     }
 
     public async loadResources() {
+        // 检查 bundle 是否已存在
+        if (Assets.resolver.hasBundle('units')) {
+            // 如果 bundle 还在，直接返回，不要重复添加
+            return;
+        }
+
         const bundles: any = {
             units: {}
         };
@@ -34,20 +37,13 @@ export class AssetManager {
 
         if (hasAssets) {
             try {
-                // If bundle exists, we assume it's already configured.
-                // We do not remove it because removeBundle is not available on Resolver in recent Pixi versions
-                // and unloading assets doesn't remove the bundle definition.
-                if (!Assets.resolver.hasBundle('units')) {
-                    Assets.addBundle('units', bundles.units);
-                }
-                
+                Assets.addBundle('units', bundles.units);
                 const loaded = await Assets.loadBundle('units');
                 
-                this.textures.clear();
                 for (const [key, tex] of Object.entries(loaded)) {
                     this.textures.set(key, tex as Texture);
                 }
-                console.log("AssetManager: Loaded units bundle", Object.keys(loaded));
+                console.log("AssetManager: Loaded units bundle");
             } catch (e) {
                 console.error("AssetManager: Failed to load resources", e);
             }
