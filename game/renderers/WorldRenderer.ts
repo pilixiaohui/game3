@@ -9,23 +9,23 @@ export class WorldRenderer {
     public app: Application | null = null;
     public world!: Container;
     
+    // Layers
     private bgLayer!: TilingSprite;
     private groundLayer!: TilingSprite;
     public unitLayer!: Container; 
-    
-    // Buckets for depth sorting
     private unitLayerBack!: Container;
     private unitLayerMid!: Container;
     private unitLayerFront!: Container;
-
     public terrainLayer!: Container;
     public particleLayer!: Container;
     public hiveLayer!: Container;
     public uiLayer!: Container;
     
+    // Graphics & Resources
     private obstacleGraphics: Graphics[] = [];
     private harvestNodeGraphics: Graphics[] = [];
     private unitTextures: Map<UnitType, Texture> = new Map();
+    public activeParticles: any[] = [];
     
     // Decal System
     private decalContainer!: Container;
@@ -33,36 +33,34 @@ export class WorldRenderer {
     private decalSprite!: Sprite;
     private sharedStampSprite!: Sprite; 
     
-    // HP Bar Batching
+    // UI
     private hpBarGraphics!: Graphics;
     
     private element: HTMLElement;
     private events: SimpleEventEmitter;
-
-    public activeParticles: any[] = [];
     private isDestroyed: boolean = false;
 
     constructor(element: HTMLElement, events: SimpleEventEmitter) {
         this.element = element;
         this.events = events;
-        
-        this.obstacleGraphics = [];
-        this.harvestNodeGraphics = [];
-        this.unitTextures = new Map();
-        this.activeParticles = [];
+        // Strictly no Pixi creation here
     }
+
+    // Bind methods for safe event removal
+    private handleFxEventBound = (e: any) => this.handleFxEvent(e);
+    private stampDecalBound = (d: any) => this.stampDecal(d);
+    private drawTerrainBound = (o: any) => this.drawTerrain(o);
+    private drawHarvestNodesBound = (n: any) => this.drawHarvestNodes(n);
 
     public async init() {
         if (this.isDestroyed) return;
 
-        // 0. Preload Assets
+        // 1. Preload Assets
         await AssetManager.instance.loadResources();
         if (this.isDestroyed) return;
 
-        // 1. Create Application Instance
+        // 2. Initialize Application (Pixi v8)
         this.app = new Application();
-
-        // 2. Asynchronous PixiJS v8 Initialization
         await this.app.init({ 
             resizeTo: this.element, 
             backgroundColor: 0x0a0a0a, 
@@ -70,60 +68,53 @@ export class WorldRenderer {
             resolution: window.devicePixelRatio || 1, 
             autoDensity: true 
         });
-        
-        // Critical Check: If destroyed during await, cleanup and exit
-        if (this.isDestroyed || !this.app.renderer) {
-            try {
-                // Ensure partial init is cleaned up
-                this.app?.destroy(true);
-            } catch (e) { /* ignore */ }
-            this.app = null;
+
+        if (this.isDestroyed) {
+            this.app.destroy();
             return;
         }
 
-        // 3. Append Canvas
+        // 3. Attach Canvas
         // @ts-ignore
         if (this.app.canvas) {
             // @ts-ignore
             this.element.appendChild(this.app.canvas);
         }
 
+        // 4. Initialize Resources
         this.loadUnitTextures();
         this.sharedStampSprite = new Sprite(Texture.EMPTY);
 
-        // --- Layer Setup ---
-        
-        // BG
-        const bgGfx = new Graphics();
-        bgGfx.beginFill(0x111111);
-        bgGfx.drawRect(0, 0, 512, 512);
-        bgGfx.endFill();
+        // --- Background ---
+        // Using v8 Graphics API
+        const bgGfx = new Graphics().rect(0, 0, 512, 512).fill(0x111111);
         const bgTex = this.app.renderer.generateTexture(bgGfx);
-        this.bgLayer = new TilingSprite(bgTex, this.app.screen.width, this.app.screen.height);
+        this.bgLayer = new TilingSprite({ texture: bgTex, width: this.app.screen.width, height: this.app.screen.height });
         this.app.stage.addChild(this.bgLayer);
+        bgGfx.destroy(); 
 
-        // Ground
-        const floorGfx = new Graphics();
-        floorGfx.beginFill(0x181818);
-        floorGfx.drawRect(0, 0, 256, 256);
-        floorGfx.lineStyle(2, 0x2a2a2a, 0.5);
-        floorGfx.moveTo(0, 0); floorGfx.lineTo(0, 256);
-        floorGfx.moveTo(0, 0); floorGfx.lineTo(256, 0);
-        floorGfx.endFill();
+        // --- Ground ---
+        const floorGfx = new Graphics()
+            .rect(0, 0, 256, 256).fill(0x181818)
+            .moveTo(0, 0).lineTo(0, 256).stroke({ width: 2, color: 0x2a2a2a, alpha: 0.5 })
+            .moveTo(0, 0).lineTo(256, 0).stroke({ width: 2, color: 0x2a2a2a, alpha: 0.5 });
+            
         const floorTex = this.app.renderer.generateTexture(floorGfx);
-        this.groundLayer = new TilingSprite(floorTex, this.app.screen.width, this.app.screen.height / 2 + 200);
+        this.groundLayer = new TilingSprite({ texture: floorTex, width: this.app.screen.width, height: this.app.screen.height / 2 + 200 });
         this.groundLayer.anchor.set(0, 0);
         this.app.stage.addChild(this.groundLayer);
+        floorGfx.destroy();
 
-        // World Container
+        // --- World Container ---
         this.world = new Container();
         this.app.stage.addChild(this.world);
 
-        // 1. Terrain & Decals
+        // Layers Setup
         this.terrainLayer = new Container(); 
         this.terrainLayer.zIndex = 5;
         this.world.addChild(this.terrainLayer);
 
+        // Decals
         this.decalContainer = new Container(); 
         this.terrainLayer.addChild(this.decalContainer); 
         
@@ -133,18 +124,16 @@ export class WorldRenderer {
         this.decalSprite.y = LANE_Y;
         this.decalContainer.addChild(this.decalSprite);
 
-        // 2. Hive
         this.hiveLayer = new Container(); 
         this.hiveLayer.zIndex = 6;
         this.world.addChild(this.hiveLayer);
         
-        // 3. Units (Bucketed)
         this.unitLayer = new Container();
-        this.unitLayer.sortableChildren = false; 
+        this.unitLayer.sortableChildren = false;
         this.unitLayer.zIndex = 10;
         this.world.addChild(this.unitLayer);
 
-        // Buckets
+        // Unit Buckets
         this.unitLayerBack = new Container();
         this.unitLayerMid = new Container();
         this.unitLayerFront = new Container();
@@ -152,12 +141,10 @@ export class WorldRenderer {
         this.unitLayer.addChild(this.unitLayerMid);
         this.unitLayer.addChild(this.unitLayerFront);
         
-        // 4. Particles
         this.particleLayer = new Container(); 
         this.particleLayer.zIndex = 20;
         this.world.addChild(this.particleLayer);
 
-        // 5. UI
         this.uiLayer = new Container(); 
         this.uiLayer.zIndex = 30;
         this.world.addChild(this.uiLayer);
@@ -165,11 +152,11 @@ export class WorldRenderer {
         this.hpBarGraphics = new Graphics();
         this.uiLayer.addChild(this.hpBarGraphics);
 
-        // Listen for FX Events
-        this.events.on('FX', this.handleFxEvent.bind(this));
-        this.events.on('STAMP_DECAL', this.stampDecal.bind(this));
-        this.events.on('TERRAIN_UPDATE', (obstacles: ObstacleDef[]) => this.drawTerrain(obstacles));
-        this.events.on('HARVEST_NODES_UPDATED', (nodes: HarvestNodeDef[]) => this.drawHarvestNodes(nodes));
+        // Listeners
+        this.events.on('FX', this.handleFxEventBound);
+        this.events.on('STAMP_DECAL', this.stampDecalBound);
+        this.events.on('TERRAIN_UPDATE', this.drawTerrainBound);
+        this.events.on('HARVEST_NODES_UPDATED', this.drawHarvestNodesBound);
     }
 
     private loadUnitTextures() {
@@ -196,43 +183,36 @@ export class WorldRenderer {
             const visual = config.visual;
 
             // Shadow
-            g.beginFill(0x000000, 0.4);
             const sScale = visual?.shadowScale || 1.0;
-            g.drawEllipse(0, 0, (width / 1.8) * sScale, (width / 4) * sScale);
-            g.endFill();
+            g.ellipse(0, 0, (width / 1.8) * sScale, (width / 4) * sScale).fill({ color: 0x000000, alpha: 0.4 });
 
             if (visual && visual.shapes) {
                 for (const shape of visual.shapes) {
                     const shapeColor = shape.color !== undefined ? shape.color : color;
-                    g.beginFill(shapeColor);
                     const w = width * (shape.widthPct ?? 1.0);
                     const h = height * (shape.heightPct ?? 1.0);
                     const cx = width * (shape.xOffPct ?? 0);
                     const cy = -height/2 + (height * (shape.yOffPct ?? 0)); 
 
                     if (shape.type === 'ROUNDED_RECT') {
-                        g.drawRoundedRect(cx - w/2, cy - h/2, w, h, shape.cornerRadius || 4);
+                        g.roundRect(cx - w/2, cy - h/2, w, h, shape.cornerRadius || 4).fill(shapeColor);
                     } else if (shape.type === 'RECT') {
-                        g.drawRect(cx - w/2, cy - h/2, w, h);
+                        g.rect(cx - w/2, cy - h/2, w, h).fill(shapeColor);
                     } else if (shape.type === 'CIRCLE') {
                         const r = shape.radiusPct ? width * shape.radiusPct : w/2;
-                        g.drawCircle(cx, cy, r);
+                        g.circle(cx, cy, r).fill(shapeColor);
                     }
-                    g.endFill();
                 }
             } else {
-                g.beginFill(color);
-                g.drawRect(-width/2, -height, width, height);
-                g.endFill();
+                g.rect(-width/2, -height, width, height).fill(color);
             }
             
             // Eye
-            g.beginFill(0xff00ff, 0.9);
-            g.drawCircle(width * 0.2, -height/2, 2);
-            g.endFill();
+            g.circle(width * 0.2, -height/2, 2).fill({ color: 0xff00ff, alpha: 0.9 });
 
             const texture = this.app!.renderer.generateTexture(g);
             this.unitTextures.set(unitType, texture);
+            g.destroy();
         });
     }
 
@@ -242,7 +222,6 @@ export class WorldRenderer {
         sprite.position.set(0, 0);
         
         unit.view = sprite;
-        // Initial add to middle layer
         this.unitLayerMid.addChild(sprite);
     }
 
@@ -276,16 +255,21 @@ export class WorldRenderer {
             this.createParticles(e.x, e.y, e.color, 10);
             this.createShockwave(e.x, e.y, e.radius, e.color);
         } else if (e.type === 'FLASH') {
-            const g = new Graphics(); g.beginFill(e.color); g.drawCircle(0, 0, 20); g.endFill(); g.position.set(e.x, e.y);
+            const g = new Graphics().circle(0, 0, 20).fill(e.color); 
+            g.position.set(e.x, e.y);
             this.addParticle({ view: g, type: 'GRAPHICS', life: 0.1, maxLife: 0.1, update: (p:any, dt:number) => { p.life -= dt; p.view.alpha = p.life/p.maxLife; return p.life > 0; } });
         } else if (e.type === 'PROJECTILE') {
-            const g = new Graphics(); g.lineStyle(2, e.color); g.moveTo(0,0); g.lineTo(e.x2-e.x, e.y2-e.y); g.position.set(e.x, e.y);
+            const g = new Graphics().moveTo(0,0).lineTo(e.x2-e.x, e.y2-e.y).stroke({ width: 2, color: e.color }); 
+            g.position.set(e.x, e.y);
             this.addParticle({ view: g, type: 'GRAPHICS', life: 0.1, maxLife: 0.1, update: (p:any, dt:number) => { p.life -= dt; p.view.alpha = p.life/p.maxLife; return p.life > 0; } });
         } else if (e.type === 'TEXT') {
             const t = new Text({ text: e.text, style: new TextStyle({ fontSize: e.fontSize || 12, fill: e.color, fontWeight: 'bold' }) }); t.anchor.set(0.5); t.position.set(e.x, e.y);
             this.addParticle({ view: t, type: 'TEXT', life: 0.8, maxLife: 0.8, update: (p:any, dt:number) => { p.life -= dt; p.view.y -= 20 * dt; p.view.alpha = p.life/p.maxLife; return p.life > 0; } });
         } else if (e.type === 'SLASH') {
-            const g = new Graphics(); g.lineStyle(2, e.color); g.moveTo(e.x - 10, e.y - 10); g.lineTo(e.targetX + 10, e.targetY + 10); g.moveTo(e.x + 10, e.y - 10); g.lineTo(e.targetX - 10, e.targetY + 10);
+            const g = new Graphics()
+                .moveTo(e.x - 10, e.y - 10).lineTo(e.targetX + 10, e.targetY + 10)
+                .moveTo(e.x + 10, e.y - 10).lineTo(e.targetX - 10, e.targetY + 10)
+                .stroke({ width: 2, color: e.color });
             this.addParticle({ view: g, type: 'GRAPHICS', life: 0.1, maxLife: 0.1, update: (p:any, dt:number) => { p.life -= dt; p.view.alpha = p.life; return p.life > 0; } });
         } else if (e.type === 'SHOCKWAVE') {
              this.createShockwave(e.x, e.y, e.radius, e.color);
@@ -299,13 +283,15 @@ export class WorldRenderer {
     }
 
     private createShockwave(x: number, y: number, radius: number, color: number) {
-        const g = new Graphics(); g.lineStyle(2, color); g.drawCircle(0, 0, radius); g.position.set(x, y);
+        const g = new Graphics().circle(0, 0, radius).stroke({ width: 2, color }); 
+        g.position.set(x, y);
         this.addParticle({ view: g, type: 'GRAPHICS', life: 0.3, maxLife: 0.3, update: (p:any, dt:number) => { p.life -= dt; p.view.scale.set(1 + (1 - p.life/p.maxLife)); p.view.alpha = p.life/p.maxLife; return p.life > 0; } });
     }
 
     private createParticles(x: number, y: number, color: number, count: number) {
         for(let i=0; i<count; i++) {
-            const g = new Graphics(); g.beginFill(color); g.drawRect(0,0,3,3); g.endFill(); g.position.set(x, y);
+            const g = new Graphics().rect(0,0,3,3).fill(color); 
+            g.position.set(x, y);
             const vx = (Math.random() - 0.5) * 100; const vy = (Math.random() - 0.5) * 100;
             this.addParticle({ view: g, type: 'GRAPHICS', life: 0.5, maxLife: 0.5, update: (p:any, dt:number) => { p.life -= dt; p.view.x += vx * dt; p.view.y += vy * dt; p.view.alpha = p.life/p.maxLife; return p.life > 0; } });
         }
@@ -336,6 +322,7 @@ export class WorldRenderer {
     }
 
     public updateUnitVisuals(unit: IUnit, mode: string) {
+        if (!this.app) return;
         // @ts-ignore
         if (!unit.view) return;
         const view = unit.view as Sprite;
@@ -365,7 +352,6 @@ export class WorldRenderer {
         
         if (mode === 'COMBAT_VIEW') {
             const dir = (unit.faction === Faction.ZERG) ? 1 : -1;
-            
             if (unit.velocity) {
                 const speedSq = unit.velocity.x * unit.velocity.x + unit.velocity.y * unit.velocity.y;
                 if (speedSq > 200) { 
@@ -406,11 +392,8 @@ export class WorldRenderer {
             const barW = 20;
             const barH = 3;
             const yOff = -unit.stats.height - 8;
-            this.hpBarGraphics.beginFill(0x550000);
-            this.hpBarGraphics.drawRect(unit.x - barW/2, unit.y + yOff, barW, barH);
-            this.hpBarGraphics.beginFill(unit.faction === Faction.HUMAN ? 0xff0000 : 0x00ff00);
-            this.hpBarGraphics.drawRect(unit.x - barW/2, unit.y + yOff, barW * pct, barH);
-            this.hpBarGraphics.endFill();
+            this.hpBarGraphics.rect(unit.x - barW/2, unit.y + yOff, barW, barH).fill(0x550000);
+            this.hpBarGraphics.rect(unit.x - barW/2, unit.y + yOff, barW * pct, barH).fill(unit.faction === Faction.HUMAN ? 0xff0000 : 0x00ff00);
         }
     }
 
@@ -430,19 +413,17 @@ export class WorldRenderer {
         this.obstacleGraphics = [];
         obstacles.forEach(obs => {
             const g = new Graphics();
-            g.beginFill(0x222222);
-            g.lineStyle(2, 0x555555);
             if (obs.type === 'WALL') {
-                g.drawRect(obs.x - obs.width/2, LANE_Y + obs.y - obs.height, obs.width, obs.height);
+                g.rect(obs.x - obs.width/2, LANE_Y + obs.y - obs.height, obs.width, obs.height)
+                 .fill(0x222222).stroke({ width: 2, color: 0x555555 });
                 if (obs.health && obs.maxHealth) {
                     const pct = obs.health / obs.maxHealth;
-                    g.beginFill(0x550000); g.drawRect(obs.x - obs.width/2, LANE_Y + obs.y - obs.height - 10, obs.width, 5);
-                    g.beginFill(0xff0000); g.drawRect(obs.x - obs.width/2, LANE_Y + obs.y - obs.height - 10, obs.width * pct, 5);
+                    g.rect(obs.x - obs.width/2, LANE_Y + obs.y - obs.height - 10, obs.width, 5).fill(0x550000);
+                    g.rect(obs.x - obs.width/2, LANE_Y + obs.y - obs.height - 10, obs.width * pct, 5).fill(0xff0000);
                 }
             } else if (obs.type === 'ROCK') {
-                g.drawCircle(obs.x, LANE_Y + obs.y, obs.width/2);
+                g.circle(obs.x, LANE_Y + obs.y, obs.width/2).fill(0x222222).stroke({ width: 2, color: 0x555555 });
             }
-            g.endFill();
             this.obstacleGraphics.push(g);
             this.terrainLayer.addChild(g);
         });
@@ -454,11 +435,8 @@ export class WorldRenderer {
         
         if (nodes.length > 0) {
             const hive = new Graphics();
-            hive.beginFill(0x550055);
-            hive.drawPolygon([-30, 0, -20, -40, 0, -20, 20, -40, 30, 0, 0, 10]);
-            hive.lineStyle(2, 0xaa00aa);
-            hive.drawCircle(0, 0, 45 + Math.sin(Date.now()/500)*5);
-            hive.endFill();
+            hive.poly([-30, 0, -20, -40, 0, -20, 20, -40, 30, 0, 0, 10]).fill(0x550055).stroke({ width: 2, color: 0xaa00aa });
+            hive.circle(0, 0, 45 + Math.sin(Date.now()/500)*5).stroke({ width: 2, color: 0xaa00aa });
             this.terrainLayer.addChild(hive);
             this.harvestNodeGraphics.push(hive);
         }
@@ -469,9 +447,6 @@ export class WorldRenderer {
             const color = 0x00ff00;
             const alpha = 0.6;
             
-            g.beginFill(color, alpha);
-            g.lineStyle(1, 0xccffcc, 0.8);
-            
             const shards = 3 + Math.floor(Math.random() * 3);
             for(let i=0; i<shards; i++) {
                 const h = 20 + Math.random() * 20 * multiplier;
@@ -480,14 +455,12 @@ export class WorldRenderer {
                 const cx = Math.cos(angle) * 5;
                 const cy = Math.sin(angle) * 5;
                 
-                g.drawPolygon([cx - w/2, cy, cx, cy - h, cx + w/2, cy]);
+                g.poly([cx - w/2, cy, cx, cy - h, cx + w/2, cy])
+                 .fill({ color, alpha })
+                 .stroke({ width: 1, color: 0xccffcc, alpha: 0.8 });
             }
-            g.endFill();
             
-            g.beginFill(color, 0.2);
-            g.drawCircle(0, -10, 30 * multiplier);
-            g.endFill();
-
+            g.circle(0, -10, 30 * multiplier).fill({ color, alpha: 0.2 });
             g.position.set(node.x, node.y);
             
             this.terrainLayer.addChild(g);
@@ -514,29 +487,26 @@ export class WorldRenderer {
     public destroy() {
         this.isDestroyed = true;
         
-        // Stop ticker if app exists
+        // Remove Listeners safely
+        this.events.off('FX', this.handleFxEventBound);
+        this.events.off('STAMP_DECAL', this.stampDecalBound);
+        this.events.off('TERRAIN_UPDATE', this.drawTerrainBound);
+        this.events.off('HARVEST_NODES_UPDATED', this.drawHarvestNodesBound);
+
         if (this.app?.ticker) {
             this.app.ticker.stop();
         }
 
-        // 1. Clean up textures manually if needed
         if (this.decalRenderTexture) {
             try { this.decalRenderTexture.destroy(true); } catch(e) {}
         }
         
-        // 2. Safe App Destroy
+        // Use v8 safe destroy
         if (this.app) {
             try {
-                // Only use complex options if renderer exists
                 if (this.app.renderer) {
-                    this.app.destroy(true, { 
-                        children: true, 
-                        texture: true, 
-                        textureSource: true, 
-                        context: true 
-                    });
+                    this.app.destroy({ removeView: true }, { children: true, texture: true, textureSource: true, context: true });
                 } else {
-                    // Fallback for partial init
                     this.app.destroy();
                 }
             } catch (e) {
