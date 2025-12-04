@@ -29,9 +29,6 @@ export class WorldRenderer {
     // HP Bar Batching
     private hpBarGraphics!: Graphics;
     
-    // Throttle sorting
-    private sortTimer: number = 0;
-
     private element: HTMLElement;
     private events: SimpleEventEmitter;
 
