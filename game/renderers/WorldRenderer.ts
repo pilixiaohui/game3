@@ -40,8 +40,7 @@ export class WorldRenderer {
         this.events = events;
         
         // Initialize lightweight containers
-        this.app = new Application();
-        this.world = new Container();
+        // Note: Application is created in init() for v8 async support
         this.obstacleGraphics = [];
         this.harvestNodeGraphics = [];
         this.unitTextures = new Map();
@@ -49,7 +48,10 @@ export class WorldRenderer {
     }
 
     public async init() {
-        // Asynchronous initialization for PixiJS v8
+        // 1. Create Application Instance
+        this.app = new Application();
+
+        // 2. Asynchronous PixiJS v8 Initialization
         await this.app.init({ 
             resizeTo: this.element, 
             backgroundColor: 0x0a0a0a, 
@@ -58,6 +60,7 @@ export class WorldRenderer {
             autoDensity: true 
         });
         
+        // 3. Append Canvas (v8 uses app.canvas)
         // @ts-ignore
         this.element.appendChild(this.app.canvas);
 
@@ -462,7 +465,8 @@ export class WorldRenderer {
     }
 
     public destroy() {
-        this.app.destroy(true, { children: true });
+        // Safe destroy check
+        this.app?.destroy(true, { children: true });
     }
 
     public activeParticles: any[] = [];

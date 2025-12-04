@@ -55,15 +55,18 @@ export class GameEngine implements IGameEngine {
   private metabolismSystem?: MetabolismSystem;
   private productionSystem?: ProductionSystem;
 
+  private spawnListener: (data: any) => void;
+
   constructor(isAuthority: boolean = false) {
     this.spatialHash = new SpatialHash(100);
     this.events = new SimpleEventEmitter();
     this.isSimulationAuthority = isAuthority;
 
     // Listen to Spawn Requests
-    this.events.on('REQUEST_SPAWN', (data: any) => {
+    this.spawnListener = (data: any) => {
         this.spawnUnit(data.faction, data.type, data.x);
-    });
+    };
+    this.events.on('REQUEST_SPAWN', this.spawnListener);
 
     if (this.isSimulationAuthority) {
         this.metabolismSystem = new MetabolismSystem();
@@ -230,7 +233,7 @@ export class GameEngine implements IGameEngine {
   public destroy() { 
       this.cleanupCurrentMode();
       this.renderer?.destroy(); 
-      // Stop listeners if any
-      this.events.off('REQUEST_SPAWN', () => {});
+      // Stop listeners safely
+      this.events.off('REQUEST_SPAWN', this.spawnListener);
   }
 }

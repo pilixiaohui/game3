@@ -9,11 +9,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "react-dom": "^19.2.0",
-    "react": "^19.2.0",
-    "pixi.js": "latest",
+    "react": "^19.2.1",
+    "pixi.js": "^8.14.3",
+    "vite": "^7.2.6",
+    "react-dom": "^19.2.1",
     "path": "^0.12.7",
-    "vite": "^7.2.4",
     "@vitejs/plugin-react": "^5.1.1"
   },
   "devDependencies": {
