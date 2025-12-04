@@ -233,9 +233,11 @@ export class GameEngine implements IGameEngine {
   
   public destroy() { 
       this.cleanupCurrentMode();
-      // Ensure renderer exists before destroying to avoid race condition
-      this.renderer?.destroy(); 
-      // Stop listeners safely
+      // 🔥 ADDED NULL CHECK: Ensure renderer exists before destroying
+      if (this.renderer) {
+          this.renderer.destroy();
+          this.renderer = null;
+      }
       this.events.off('REQUEST_SPAWN', this.spawnListener);
   }
 }

@@ -1,4 +1,4 @@
-import { Application, Container, Graphics, TilingSprite, Text, TextStyle, Texture, Sprite, RenderTexture, Rectangle, ParticleContainer, Particle } from 'pixi.js';
+import { Application, Container, Graphics, TilingSprite, Text, TextStyle, Texture, Sprite, RenderTexture, Rectangle } from 'pixi.js';
 import { IUnit, ObstacleDef, UnitType, Faction, IFxEvent, HarvestNodeDef } from '../../types';
 import { LANE_Y, UNIT_CONFIGS, ELEMENT_COLORS } from '../../constants';
 import { SimpleEventEmitter } from '../DataManager';
@@ -9,7 +9,7 @@ export class WorldRenderer {
     
     private bgLayer!: TilingSprite;
     private groundLayer!: TilingSprite;
-    public unitLayer!: ParticleContainer; 
+    public unitLayer!: Container; 
     public terrainLayer!: Container;
     public particleLayer!: Container;
     public hiveLayer!: Container;
@@ -30,6 +30,8 @@ export class WorldRenderer {
     
     private element: HTMLElement;
     private events: SimpleEventEmitter;
+
+    public activeParticles: any[] = [];
 
     constructor(element: HTMLElement, events: SimpleEventEmitter) {
         this.element = element;
@@ -101,17 +103,12 @@ export class WorldRenderer {
 
         this.hiveLayer = new Container(); this.hiveLayer.zIndex = 6;
         
-        // High Performance Unit Layer (ParticleContainer v8)
-        // Explicitly enabling dynamic properties for the GPU batcher
-        this.unitLayer = new ParticleContainer({
-            dynamicProperties: {
-                position: true,
-                rotation: true,
-                scale: true,
-                tint: true,
-                alpha: true
-            }
-        });
+        // High Performance Unit Layer
+        // PixiJS v8 Container is optimized for batching. ParticleContainer is removed/separate.
+        this.unitLayer = new Container();
+        // Mimic sorting behavior if needed, but for performance avoid sortableChildren if possible.
+        // For now, enabling it as units need Y-sorting.
+        this.unitLayer.sortableChildren = true;
         this.unitLayer.zIndex = 10;
         
         this.particleLayer = new Container(); this.particleLayer.zIndex = 20;
@@ -188,27 +185,20 @@ export class WorldRenderer {
     }
 
     public initUnitView(unit: IUnit) {
-        // v8 Particle System: Use Particle class, not Sprite
-        const particle = new Particle({
-            texture: Texture.EMPTY,
-            x: 0, 
-            y: 0,
-            scaleX: 1, 
-            scaleY: 1,
-            rotation: 0,
-            alpha: 1,
-            tint: 0xffffff
-        });
+        // v8 Adaptation: Use Sprite instead of Particle (Particle class removed in v8)
+        const sprite = new Sprite(Texture.EMPTY);
+        sprite.anchor.set(0.5, 1.0); // Standard anchor for ground units
+        sprite.position.set(0, 0);
         
-        unit.view = particle;
-        this.unitLayer.addParticle(particle);
+        unit.view = sprite;
+        this.unitLayer.addChild(sprite);
     }
 
     public assignTexture(unit: IUnit) {
         if (!unit.view) return;
         const texture = this.unitTextures.get(unit.type);
         if (texture) {
-            (unit.view as Particle).texture = texture;
+            (unit.view as Sprite).texture = texture;
         }
     }
 
@@ -241,7 +231,7 @@ export class WorldRenderer {
             const g = new Graphics(); g.lineStyle(2, e.color); g.moveTo(0,0); g.lineTo(e.x2-e.x, e.y2-e.y); g.position.set(e.x, e.y);
             this.addParticle({ view: g, type: 'GRAPHICS', life: 0.1, maxLife: 0.1, update: (p:any, dt:number) => { p.life -= dt; p.view.alpha = p.life/p.maxLife; return p.life > 0; } });
         } else if (e.type === 'TEXT') {
-            const t = new Text(e.text, new TextStyle({ fontSize: e.fontSize || 12, fill: e.color, fontWeight: 'bold' })); t.anchor.set(0.5); t.position.set(e.x, e.y);
+            const t = new Text({ text: e.text, style: new TextStyle({ fontSize: e.fontSize || 12, fill: e.color, fontWeight: 'bold' }) }); t.anchor.set(0.5); t.position.set(e.x, e.y);
             this.addParticle({ view: t, type: 'TEXT', life: 0.8, maxLife: 0.8, update: (p:any, dt:number) => { p.life -= dt; p.view.y -= 20 * dt; p.view.alpha = p.life/p.maxLife; return p.life > 0; } });
         } else if (e.type === 'SLASH') {
             const g = new Graphics(); g.lineStyle(2, e.color); g.moveTo(e.x - 10, e.y - 10); g.lineTo(e.targetX + 10, e.targetY + 10); g.moveTo(e.x + 10, e.y - 10); g.lineTo(e.targetX - 10, e.targetY + 10);
@@ -297,16 +287,18 @@ export class WorldRenderer {
     public updateUnitVisuals(unit: IUnit, mode: string) {
         // @ts-ignore
         if (!unit.view) return;
-        const view = unit.view as Particle;
+        const view = unit.view as Sprite;
 
         if (unit.isDead || !unit.active) {
-             view.alpha = 0; // Hide it
+             view.visible = false; 
              return;
         }
+        view.visible = true;
 
         view.alpha = unit.context.isBurrowed ? 0.5 : 1.0;
         view.x = unit.x;
         view.y = unit.y;
+        view.zIndex = unit.y; // For sorting
         
         let scaleX = 1.0;
         let scaleY = 1.0;
@@ -345,8 +337,7 @@ export class WorldRenderer {
              view.tint = 0xffffff;
         }
 
-        view.scaleX = scaleX;
-        view.scaleY = scaleY;
+        view.scale.set(scaleX, scaleY);
         view.rotation = 0; 
     }
     
@@ -460,15 +451,13 @@ export class WorldRenderer {
         this.decalContainer.removeChildren();
     }
 
-    public destroy() {
-        // Safe destroy check
-        this.app?.destroy(true, { children: true });
-    }
-
-    public activeParticles: any[] = [];
-    
     public addParticle(p: any) {
         this.particleLayer.addChild(p.view);
         this.activeParticles.push(p);
+    }
+
+    public destroy() {
+        // Safe destroy check using optional chaining
+        this.app?.destroy(true, { children: true });
     }
 }
