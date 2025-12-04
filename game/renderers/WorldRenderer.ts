@@ -2,14 +2,22 @@ import { Application, Container, Graphics, TilingSprite, Text, TextStyle, Textur
 import { IUnit, ObstacleDef, UnitType, Faction, IFxEvent, HarvestNodeDef } from '../../types';
 import { LANE_Y, UNIT_CONFIGS, ELEMENT_COLORS } from '../../constants';
 import { SimpleEventEmitter } from '../DataManager';
+import { AssetManager } from '../AssetManager';
 
 export class WorldRenderer {
-    public app: Application;
+    public app: Application | null = null;
     public world: Container;
     
     private bgLayer!: TilingSprite;
     private groundLayer!: TilingSprite;
+    
+    // Layers
     public unitLayer!: Container; 
+    // Buckets for depth sorting (Optimization: Day 2)
+    private unitLayerBack!: Container;
+    private unitLayerMid!: Container;
+    private unitLayerFront!: Container;
+
     public terrainLayer!: Container;
     public particleLayer!: Container;
     public hiveLayer!: Container;
@@ -23,7 +31,7 @@ export class WorldRenderer {
     private decalContainer!: Container;
     private decalRenderTexture!: RenderTexture;
     private decalSprite!: Sprite;
-    private sharedStampSprite!: Sprite; // Shared sprite for stamping
+    private sharedStampSprite!: Sprite; 
     
     // HP Bar Batching
     private hpBarGraphics!: Graphics;
@@ -37,8 +45,6 @@ export class WorldRenderer {
         this.element = element;
         this.events = events;
         
-        // Initialize lightweight containers
-        // Note: Application is created in init() for v8 async support
         this.obstacleGraphics = [];
         this.harvestNodeGraphics = [];
         this.unitTextures = new Map();
@@ -46,6 +52,9 @@ export class WorldRenderer {
     }
 
     public async init() {
+        // 0. Preload Assets
+        await AssetManager.instance.loadResources();
+
         // 1. Create Application Instance
         this.app = new Application();
 
@@ -58,14 +67,19 @@ export class WorldRenderer {
             autoDensity: true 
         });
         
-        // 3. Append Canvas (v8 uses app.canvas)
+        // 3. Append Canvas
         // @ts-ignore
-        this.element.appendChild(this.app.canvas);
+        if (this.app.canvas) {
+            // @ts-ignore
+            this.element.appendChild(this.app.canvas);
+        }
 
-        this.bakeUnitTextures();
+        this.loadUnitTextures();
         this.sharedStampSprite = new Sprite(Texture.EMPTY);
 
-        // Layers
+        // --- Layer Setup ---
+        
+        // BG
         const bgGfx = new Graphics();
         bgGfx.beginFill(0x111111);
         bgGfx.drawRect(0, 0, 512, 512);
@@ -74,6 +88,7 @@ export class WorldRenderer {
         this.bgLayer = new TilingSprite(bgTex, this.app.screen.width, this.app.screen.height);
         this.app.stage.addChild(this.bgLayer);
 
+        // Ground
         const floorGfx = new Graphics();
         floorGfx.beginFill(0x181818);
         floorGfx.drawRect(0, 0, 256, 256);
@@ -86,38 +101,52 @@ export class WorldRenderer {
         this.groundLayer.anchor.set(0, 0);
         this.app.stage.addChild(this.groundLayer);
 
+        // World Container
         this.world = new Container();
-        this.world.sortableChildren = true;
+        // this.world.sortableChildren = true; // Optimization: Disable explicit sorting on root
         this.app.stage.addChild(this.world);
 
-        this.terrainLayer = new Container(); this.terrainLayer.zIndex = 5;
-        this.decalContainer = new Container(); this.terrainLayer.addChild(this.decalContainer); 
+        // 1. Terrain & Decals
+        this.terrainLayer = new Container(); 
+        this.terrainLayer.zIndex = 5;
+        this.world.addChild(this.terrainLayer);
+
+        this.decalContainer = new Container(); 
+        this.terrainLayer.addChild(this.decalContainer); 
         
-        // Decal System Init
-        // Use a large render texture to stamp dead units
-        this.decalRenderTexture = RenderTexture.create({ width: 4096, height: 1024 }); // Wide enough for a few stages
+        this.decalRenderTexture = RenderTexture.create({ width: 4096, height: 1024 }); 
         this.decalSprite = new Sprite(this.decalRenderTexture);
-        this.decalSprite.anchor.set(0, 0.5); // Center vertically on lane
+        this.decalSprite.anchor.set(0, 0.5); 
         this.decalSprite.y = LANE_Y;
         this.decalContainer.addChild(this.decalSprite);
 
-        this.hiveLayer = new Container(); this.hiveLayer.zIndex = 6;
-        
-        // High Performance Unit Layer
-        // PixiJS v8 Container is optimized for batching. ParticleContainer is removed/separate.
-        this.unitLayer = new Container();
-        // Mimic sorting behavior if needed, but for performance avoid sortableChildren if possible.
-        // For now, enabling it as units need Y-sorting.
-        this.unitLayer.sortableChildren = true;
-        this.unitLayer.zIndex = 10;
-        
-        this.particleLayer = new Container(); this.particleLayer.zIndex = 20;
-        this.uiLayer = new Container(); this.uiLayer.zIndex = 30;
-
-        this.world.addChild(this.terrainLayer);
+        // 2. Hive
+        this.hiveLayer = new Container(); 
+        this.hiveLayer.zIndex = 6;
         this.world.addChild(this.hiveLayer);
+        
+        // 3. Units (Bucketed)
+        this.unitLayer = new Container();
+        this.unitLayer.sortableChildren = false; // Optimization: Disable sorting
+        this.unitLayer.zIndex = 10;
         this.world.addChild(this.unitLayer);
+
+        // Buckets
+        this.unitLayerBack = new Container();
+        this.unitLayerMid = new Container();
+        this.unitLayerFront = new Container();
+        this.unitLayer.addChild(this.unitLayerBack);
+        this.unitLayer.addChild(this.unitLayerMid);
+        this.unitLayer.addChild(this.unitLayerFront);
+        
+        // 4. Particles
+        this.particleLayer = new Container(); 
+        this.particleLayer.zIndex = 20;
         this.world.addChild(this.particleLayer);
+
+        // 5. UI
+        this.uiLayer = new Container(); 
+        this.uiLayer.zIndex = 30;
         this.world.addChild(this.uiLayer);
         
         this.hpBarGraphics = new Graphics();
@@ -126,14 +155,24 @@ export class WorldRenderer {
         // Listen for FX Events
         this.events.on('FX', this.handleFxEvent.bind(this));
         this.events.on('STAMP_DECAL', this.stampDecal.bind(this));
-        
         this.events.on('TERRAIN_UPDATE', (obstacles: ObstacleDef[]) => this.drawTerrain(obstacles));
         this.events.on('HARVEST_NODES_UPDATED', (nodes: HarvestNodeDef[]) => this.drawHarvestNodes(nodes));
     }
 
-    private bakeUnitTextures() {
+    private loadUnitTextures() {
+        if (!this.app) return;
+
         Object.values(UnitType).forEach(type => {
             const unitType = type as UnitType;
+            
+            // 1. Check AssetManager first
+            const assetTex = AssetManager.instance.getTexture(unitType);
+            if (assetTex) {
+                this.unitTextures.set(unitType, assetTex);
+                return;
+            }
+
+            // 2. Fallback to Graphics Generation
             const config = UNIT_CONFIGS[unitType];
             if (!config) return;
 
@@ -185,13 +224,13 @@ export class WorldRenderer {
     }
 
     public initUnitView(unit: IUnit) {
-        // v8 Adaptation: Use Sprite instead of Particle (Particle class removed in v8)
         const sprite = new Sprite(Texture.EMPTY);
-        sprite.anchor.set(0.5, 1.0); // Standard anchor for ground units
+        sprite.anchor.set(0.5, 1.0);
         sprite.position.set(0, 0);
         
         unit.view = sprite;
-        this.unitLayer.addChild(sprite);
+        // Initial add to middle layer
+        this.unitLayerMid.addChild(sprite);
     }
 
     public assignTexture(unit: IUnit) {
@@ -203,20 +242,19 @@ export class WorldRenderer {
     }
 
     private stampDecal(data: { x: number, y: number, type: UnitType, rotation: number, scaleX: number }) {
+        if (!this.app) return;
         const tex = this.unitTextures.get(data.type);
         if (!tex) return;
 
-        // Use shared sprite to avoid GC
         const s = this.sharedStampSprite;
         s.texture = tex;
         s.anchor.set(0.5, 1.0);
-        s.position.set(data.x, data.y - LANE_Y); // Relative to decalRenderTexture center
+        s.position.set(data.x, data.y - LANE_Y);
         s.rotation = data.rotation;
-        s.scale.set(data.scaleX, 1.0); // Maintain squash status
-        s.tint = 0x333333; // Dark corpse
+        s.scale.set(data.scaleX, 1.0);
+        s.tint = 0x333333;
         s.alpha = 0.7;
         
-        // Stamp onto the render texture
         this.app.renderer.render({ container: s, target: this.decalRenderTexture, clear: false });
     }
 
@@ -261,6 +299,7 @@ export class WorldRenderer {
     }
 
     public resize(scaleFactor: number, cameraX: number, mode: string) {
+        if (!this.app) return;
         const w = this.app.screen.width;
         const h = this.app.screen.height;
 
@@ -278,7 +317,6 @@ export class WorldRenderer {
         this.groundLayer.width = w; this.groundLayer.height = h;
         this.groundLayer.y = this.world.y;
 
-        // Camera Update
         this.world.pivot.x = mode === 'COMBAT_VIEW' ? cameraX : 0;
         this.groundLayer.tilePosition.x = -this.world.pivot.x * 0.5;
         this.bgLayer.tilePosition.x = -this.world.pivot.x * 0.1;
@@ -295,10 +333,20 @@ export class WorldRenderer {
         }
         view.visible = true;
 
+        // Optimization: Simple Bucketing instead of Sorting
+        let targetContainer = this.unitLayerMid;
+        // Lane Y is around -90 to 90
+        if (unit.y < -30) targetContainer = this.unitLayerBack;
+        else if (unit.y > 30) targetContainer = this.unitLayerFront;
+
+        if (view.parent !== targetContainer) {
+            targetContainer.addChild(view);
+        }
+
         view.alpha = unit.context.isBurrowed ? 0.5 : 1.0;
         view.x = unit.x;
         view.y = unit.y;
-        view.zIndex = unit.y; // For sorting
+        // view.zIndex = unit.y; // REMOVED Z-Sort
         
         let scaleX = 1.0;
         let scaleY = 1.0;
@@ -306,14 +354,12 @@ export class WorldRenderer {
         if (mode === 'COMBAT_VIEW') {
             const dir = (unit.faction === Faction.ZERG) ? 1 : -1;
             
-            // JUICINESS: Squash and Stretch based on real-time velocity
             if (unit.velocity) {
                 const speedSq = unit.velocity.x * unit.velocity.x + unit.velocity.y * unit.velocity.y;
                 if (speedSq > 200) { 
                      const speed = Math.sqrt(speedSq);
                      const maxSpeed = unit.stats.speed || 1;
                      const stretch = Math.min(0.3, (speed / maxSpeed) * 0.2);
-                     
                      scaleX = dir * (1 + stretch); 
                      scaleY = 1 - stretch;         
                 } else {
@@ -322,14 +368,12 @@ export class WorldRenderer {
             } else {
                 scaleX = dir;
             }
-
         } else if (mode === 'HARVEST_VIEW') {
              if (unit.steeringForce && unit.steeringForce.x !== 0) {
                  scaleX = unit.steeringForce.x > 0 ? 1 : -1;
              }
         }
         
-        // Detonation Flash
         if (unit.context.detonating) {
              const t = Math.sin(Date.now() / 50); 
              view.tint = t > 0 ? 0xff0000 : 0xffffff;
@@ -345,12 +389,10 @@ export class WorldRenderer {
         this.hpBarGraphics.clear();
         for (const unit of activeUnits) {
             if (!unit.active || unit.isDead || unit.stats.hp >= unit.stats.maxHp) continue;
-            
             const pct = Math.max(0, unit.stats.hp / unit.stats.maxHp);
             const barW = 20;
             const barH = 3;
             const yOff = -unit.stats.height - 8;
-            
             this.hpBarGraphics.beginFill(0x550000);
             this.hpBarGraphics.drawRect(unit.x - barW/2, unit.y + yOff, barW, barH);
             this.hpBarGraphics.beginFill(unit.faction === Faction.HUMAN ? 0xff0000 : 0x00ff00);
@@ -457,7 +499,21 @@ export class WorldRenderer {
     }
 
     public destroy() {
-        // Safe destroy check using optional chaining
-        this.app?.destroy(true, { children: true });
+        // Stop ticker
+        if (this.app?.ticker) {
+            this.app.ticker.stop();
+        }
+        
+        // Full destroy to clear context
+        this.app?.destroy(true, { 
+            children: true, 
+            texture: true, 
+            textureSource: true, 
+            context: true 
+        });
+        
+        this.app = null;
+        this.obstacleGraphics = [];
+        this.unitTextures.clear();
     }
 }

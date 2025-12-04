@@ -19,39 +19,49 @@ export const GameCanvas = forwardRef<HTMLDivElement, GameCanvasProps>(({
 
     useImperativeHandle(ref, () => containerRef.current!);
 
-    // 1. One-time Initialization
+    // 1. Safe Initialization
     useEffect(() => {
         const container = containerRef.current;
         if (!container) return;
 
-        // Prevent double init in Strict Mode
-        if (engineRef.current) return;
-
-        let engine: GameEngine;
+        let isMounted = true;
+        let engineInstance: GameEngine | null = null;
 
         const initGame = async () => {
-             // Clean up previous children
-            while (container.firstChild) container.removeChild(container.firstChild);
+            // Clean up any potential lingering engine from double-fire
+            if (engineRef.current) {
+                engineRef.current.destroy();
+                engineRef.current = null;
+            }
 
             // Create Engine
-            engine = new GameEngine(isSimulationAuthority);
-            engineRef.current = engine;
+            const newEngine = new GameEngine(isSimulationAuthority);
+            engineInstance = newEngine;
             
             try {
-                await engine.init(container);
-                onEngineInit(engine);
+                await newEngine.init(container);
                 
-                // Set initial state immediately after init
+                // Critical Check: If component unmounted during async init, destroy immediately
+                if (!isMounted) {
+                    newEngine.destroy();
+                    return;
+                }
+
+                engineRef.current = newEngine;
+                
+                // Set initial state
                 if (activeRegion) {
-                    engine.activeRegionId = activeRegion.id;
-                    engine.humanDifficultyMultiplier = activeRegion.difficultyMultiplier;
+                    newEngine.activeRegionId = activeRegion.id;
+                    newEngine.humanDifficultyMultiplier = activeRegion.difficultyMultiplier;
                 }
                 const initialMode = mode ? mode : (activeRegion ? 'COMBAT_VIEW' : 'HIVE');
-                engine.setMode(initialMode);
+                newEngine.setMode(initialMode);
+                
+                onEngineInit(newEngine);
 
             } catch (err) {
                 console.error("GameEngine init failed:", err);
-                engine.destroy();
+                newEngine.destroy();
                 engineRef.current = null;
             }
         };
@@ -59,17 +69,23 @@ export const GameCanvas = forwardRef<HTMLDivElement, GameCanvasProps>(({
         initGame();
 
         return () => {
+            isMounted = false;
             if (engineRef.current) {
                 engineRef.current.destroy();
                 engineRef.current = null;
             }
-             if (container) {
+            // Also cleanup instance if it was created but not yet assigned to ref
+            if (engineInstance && engineInstance !== engineRef.current) {
+                engineInstance.destroy();
+            }
+            // DOM Cleanup
+            if (container) {
                 while (container.firstChild) container.removeChild(container.firstChild);
             }
         };
-    }, []); // Empty dependency array: Run once
+    }, []); // Run once on mount
 
-    // 2. React to State Changes
+    // 2. React to State Changes (Safe Updates)
     useEffect(() => {
         const engine = engineRef.current;
         if (!engine) return;
@@ -87,7 +103,7 @@ export const GameCanvas = forwardRef<HTMLDivElement, GameCanvasProps>(({
         const targetMode = mode ? mode : (activeRegion ? 'COMBAT_VIEW' : 'HIVE');
         engine.setMode(targetMode);
 
-    }, [activeRegion, mode]); // Run whenever props change
+    }, [activeRegion, mode]);
 
     return <div ref={containerRef} className="absolute inset-0 w-full h-full z-0" />;
 });
