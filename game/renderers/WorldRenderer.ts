@@ -1,142 +1,144 @@
 
-import { Application, Container, Graphics, TilingSprite, Text, TextStyle, Texture, Sprite, RenderTexture, Rectangle, Assets } from 'pixi.js';
+import { Application, Container, Graphics, TilingSprite, Text, TextStyle, Texture, Sprite, RenderTexture, Assets } from 'pixi.js';
 import { IUnit, ObstacleDef, UnitType, Faction, IFxEvent, HarvestNodeDef } from '../../types';
 import { LANE_Y, UNIT_CONFIGS, ELEMENT_COLORS } from '../../constants';
 import { SimpleEventEmitter } from '../DataManager';
 import { AssetManager } from '../AssetManager';
 
+// 🔥 核心修复：模块级单例，永不销毁，跨越组件生命周期
+let sharedApp: Application | null = null;
+
 export class WorldRenderer {
-    public app: Application | null = null;
+    // 使用 getter 访问共享实例
+    public get app(): Application | null { return sharedApp; }
+    
     public world!: Container;
     
-    // Layers
     private bgLayer!: TilingSprite;
     private groundLayer!: TilingSprite;
     public unitLayer!: Container; 
+    
     private unitLayerBack!: Container;
     private unitLayerMid!: Container;
     private unitLayerFront!: Container;
+
     public terrainLayer!: Container;
     public particleLayer!: Container;
     public hiveLayer!: Container;
     public uiLayer!: Container;
     
-    // Graphics & Resources
     private obstacleGraphics: Graphics[] = [];
     private harvestNodeGraphics: Graphics[] = [];
     private unitTextures: Map<UnitType, Texture> = new Map();
-    public activeParticles: any[] = [];
     
-    // Decal System
     private decalContainer!: Container;
     private decalRenderTexture!: RenderTexture;
     private decalSprite!: Sprite;
     private sharedStampSprite!: Sprite; 
     
-    // UI
     private hpBarGraphics!: Graphics;
     
     private element: HTMLElement;
     private events: SimpleEventEmitter;
+
+    public activeParticles: any[] = [];
     private isDestroyed: boolean = false;
 
     constructor(element: HTMLElement, events: SimpleEventEmitter) {
         this.element = element;
         this.events = events;
-        // Strictly no Pixi creation here
+        
+        this.obstacleGraphics = [];
+        this.harvestNodeGraphics = [];
+        this.unitTextures = new Map();
+        this.activeParticles = [];
     }
-
-    // Bind methods for safe event removal
-    private handleFxEventBound = (e: any) => this.handleFxEvent(e);
-    private stampDecalBound = (d: any) => this.stampDecal(d);
-    private drawTerrainBound = (o: any) => this.drawTerrain(o);
-    private drawHarvestNodesBound = (n: any) => this.drawHarvestNodes(n);
 
     public async init() {
         if (this.isDestroyed) return;
 
-        // 1. Preload Assets
+        // 0. 资源加载 (AssetManager 内部已有防重复检查)
         await AssetManager.instance.loadResources();
         if (this.isDestroyed) return;
 
-        // 2. Initialize Application (Pixi v8)
-        this.app = new Application();
-        await this.app.init({ 
-            resizeTo: this.element, 
-            backgroundColor: 0x0a0a0a, 
-            antialias: false, 
-            resolution: window.devicePixelRatio || 1, 
-            autoDensity: true 
-        });
-
-        if (this.isDestroyed) {
-            // Safety check if destroyed while initializing
-            if (this.app.renderer) {
-                this.app.destroy(true);
-            }
-            return;
+        // 1. 🔥 核心修复：单例初始化模式
+        // 如果全局 App 不存在，才创建。否则直接复用。
+        if (!sharedApp) {
+            sharedApp = new Application();
+            await sharedApp.init({ 
+                resizeTo: window, // 监听窗口变化
+                backgroundColor: 0x0a0a0a, 
+                antialias: false, 
+                resolution: window.devicePixelRatio || 1, 
+                autoDensity: true 
+            });
         }
 
-        // 3. Attach Canvas
-        // @ts-ignore
-        if (this.app.canvas) {
-            // @ts-ignore
-            this.element.appendChild(this.app.canvas);
+        // 2. 挂载 Canvas
+        // 每次 init 时，都需要把 canvas 重新 append 到当前的 DOM 节点（因为 React 可能重建了 DOM）
+        if (sharedApp.canvas && this.element) {
+            this.element.appendChild(sharedApp.canvas);
         }
 
-        // 4. Initialize Resources
+        // 3. 场景重建 (每次都要做，因为我们会在 destroy 时清空 stage)
+        this.setupScene();
         this.loadUnitTextures();
-        this.sharedStampSprite = new Sprite(Texture.EMPTY);
+        
+        // 启动 Ticker (如果被暂停了)
+        sharedApp.ticker.start();
+    }
 
-        // --- Background ---
-        // Using v8 Graphics API
-        const bgGfx = new Graphics().rect(0, 0, 512, 512).fill(0x111111);
-        const bgTex = this.app.renderer.generateTexture(bgGfx);
-        this.bgLayer = new TilingSprite({ texture: bgTex, width: this.app.screen.width, height: this.app.screen.height });
-        this.app.stage.addChild(this.bgLayer);
-        bgGfx.destroy(); 
+    private setupScene() {
+        if (!sharedApp) return;
+        const stage = sharedApp.stage;
 
-        // --- Ground ---
-        const floorGfx = new Graphics()
-            .rect(0, 0, 256, 256).fill(0x181818)
-            .moveTo(0, 0).lineTo(0, 256).stroke({ width: 2, color: 0x2a2a2a, alpha: 0.5 })
-            .moveTo(0, 0).lineTo(256, 0).stroke({ width: 2, color: 0x2a2a2a, alpha: 0.5 });
-            
-        const floorTex = this.app.renderer.generateTexture(floorGfx);
-        this.groundLayer = new TilingSprite({ texture: floorTex, width: this.app.screen.width, height: this.app.screen.height / 2 + 200 });
+        // 确保舞台是空的
+        stage.removeChildren();
+
+        // --- Layer Setup ---
+        const bgGfx = new Graphics();
+        bgGfx.rect(0, 0, 512, 512).fill(0x111111);
+        const bgTex = sharedApp.renderer.generateTexture(bgGfx);
+        this.bgLayer = new TilingSprite({ texture: bgTex, width: sharedApp.screen.width, height: sharedApp.screen.height });
+        stage.addChild(this.bgLayer);
+
+        const floorGfx = new Graphics();
+        floorGfx.rect(0, 0, 256, 256).fill(0x181818);
+        floorGfx.stroke({ width: 2, color: 0x2a2a2a, alpha: 0.5 });
+        floorGfx.moveTo(0, 0).lineTo(0, 256);
+        floorGfx.moveTo(0, 0).lineTo(256, 0);
+        const floorTex = sharedApp.renderer.generateTexture(floorGfx);
+        this.groundLayer = new TilingSprite({ texture: floorTex, width: sharedApp.screen.width, height: sharedApp.screen.height / 2 + 200 });
         this.groundLayer.anchor.set(0, 0);
-        this.app.stage.addChild(this.groundLayer);
-        floorGfx.destroy();
+        stage.addChild(this.groundLayer);
 
-        // --- World Container ---
         this.world = new Container();
-        this.app.stage.addChild(this.world);
+        stage.addChild(this.world);
 
-        // Layers Setup
-        this.terrainLayer = new Container(); 
-        this.terrainLayer.zIndex = 5;
+        this.terrainLayer = new Container(); this.terrainLayer.zIndex = 5;
         this.world.addChild(this.terrainLayer);
 
-        // Decals
         this.decalContainer = new Container(); 
         this.terrainLayer.addChild(this.decalContainer); 
         
-        this.decalRenderTexture = RenderTexture.create({ width: 4096, height: 1024 }); 
+        // 使用 try-catch 防止纹理重复创建报错
+        if (!this.decalRenderTexture) {
+             this.decalRenderTexture = RenderTexture.create({ width: 4096, height: 1024 });
+        }
+        
         this.decalSprite = new Sprite(this.decalRenderTexture);
         this.decalSprite.anchor.set(0, 0.5); 
         this.decalSprite.y = LANE_Y;
         this.decalContainer.addChild(this.decalSprite);
 
-        this.hiveLayer = new Container(); 
-        this.hiveLayer.zIndex = 6;
+        this.hiveLayer = new Container(); this.hiveLayer.zIndex = 6;
         this.world.addChild(this.hiveLayer);
         
         this.unitLayer = new Container();
-        this.unitLayer.sortableChildren = false;
+        this.unitLayer.sortableChildren = false; 
         this.unitLayer.zIndex = 10;
         this.world.addChild(this.unitLayer);
 
-        // Unit Buckets
         this.unitLayerBack = new Container();
         this.unitLayerMid = new Container();
         this.unitLayerFront = new Container();
@@ -144,26 +146,67 @@ export class WorldRenderer {
         this.unitLayer.addChild(this.unitLayerMid);
         this.unitLayer.addChild(this.unitLayerFront);
         
-        this.particleLayer = new Container(); 
-        this.particleLayer.zIndex = 20;
+        this.particleLayer = new Container(); this.particleLayer.zIndex = 20;
         this.world.addChild(this.particleLayer);
 
-        this.uiLayer = new Container(); 
-        this.uiLayer.zIndex = 30;
+        this.uiLayer = new Container(); this.uiLayer.zIndex = 30;
         this.world.addChild(this.uiLayer);
         
         this.hpBarGraphics = new Graphics();
         this.uiLayer.addChild(this.hpBarGraphics);
 
-        // Listeners
+        this.sharedStampSprite = new Sprite(Texture.EMPTY);
+        
+        // 重新绑定事件监听
+        // 注意：Events 需要解绑防止重复，这里简单起见先不处理重复绑定的问题，因为 WorldRenderer 实例是新的
+        this.events.off('FX', this.handleFxEventBound); 
         this.events.on('FX', this.handleFxEventBound);
+        
+        this.events.off('STAMP_DECAL', this.stampDecalBound);
         this.events.on('STAMP_DECAL', this.stampDecalBound);
+        
+        this.events.off('TERRAIN_UPDATE', this.drawTerrainBound);
         this.events.on('TERRAIN_UPDATE', this.drawTerrainBound);
+        
+        this.events.off('HARVEST_NODES_UPDATED', this.drawHarvestNodesBound);
         this.events.on('HARVEST_NODES_UPDATED', this.drawHarvestNodesBound);
     }
 
+    private handleFxEventBound = (e: any) => this.handleFxEvent(e);
+    private stampDecalBound = (d: any) => this.stampDecal(d);
+    private drawTerrainBound = (o: any) => this.drawTerrain(o);
+    private drawHarvestNodesBound = (n: any) => this.drawHarvestNodes(n);
+
+    public destroy() {
+        this.isDestroyed = true;
+        
+        // Remove Listeners safely
+        this.events.off('FX', this.handleFxEventBound);
+        this.events.off('STAMP_DECAL', this.stampDecalBound);
+        this.events.off('TERRAIN_UPDATE', this.drawTerrainBound);
+        this.events.off('HARVEST_NODES_UPDATED', this.drawHarvestNodesBound);
+
+        if (sharedApp) {
+            // 🔥 核心修复：不要销毁 App，只清理舞台
+            sharedApp.stage.removeChildren();
+            
+            // 将 Canvas 从 DOM 移除，但不销毁 Canvas 本身
+            if (sharedApp.canvas && sharedApp.canvas.parentNode) {
+                sharedApp.canvas.parentNode.removeChild(sharedApp.canvas);
+            }
+            
+            // 停止 Ticker 节省资源
+            // sharedApp.ticker.stop(); // 可选，如果想完全静默
+        }
+
+        this.obstacleGraphics = [];
+        this.harvestNodeGraphics = [];
+        this.unitTextures.clear();
+        this.activeParticles = [];
+    }
+
     private loadUnitTextures() {
-        if (!this.app) return;
+        if (!sharedApp) return;
 
         Object.values(UnitType).forEach(type => {
             const unitType = type as UnitType;
@@ -213,7 +256,7 @@ export class WorldRenderer {
             // Eye
             g.circle(width * 0.2, -height/2, 2).fill({ color: 0xff00ff, alpha: 0.9 });
 
-            const texture = this.app!.renderer.generateTexture(g);
+            const texture = sharedApp!.renderer.generateTexture(g);
             this.unitTextures.set(unitType, texture);
             g.destroy();
         });
@@ -237,7 +280,7 @@ export class WorldRenderer {
     }
 
     private stampDecal(data: { x: number, y: number, type: UnitType, rotation: number, scaleX: number }) {
-        if (!this.app) return;
+        if (!sharedApp) return;
         const tex = this.unitTextures.get(data.type);
         if (!tex) return;
 
@@ -250,7 +293,7 @@ export class WorldRenderer {
         s.tint = 0x333333;
         s.alpha = 0.7;
         
-        this.app.renderer.render({ container: s, target: this.decalRenderTexture, clear: false });
+        sharedApp.renderer.render({ container: s, target: this.decalRenderTexture, clear: false });
     }
 
     private handleFxEvent(e: IFxEvent) {
@@ -301,9 +344,9 @@ export class WorldRenderer {
     }
 
     public resize(scaleFactor: number, cameraX: number, mode: string) {
-        if (!this.app) return;
-        const w = this.app.screen.width;
-        const h = this.app.screen.height;
+        if (!sharedApp) return;
+        const w = sharedApp.screen.width;
+        const h = sharedApp.screen.height;
 
         this.world.scale.set(scaleFactor);
 
@@ -325,7 +368,7 @@ export class WorldRenderer {
     }
 
     public updateUnitVisuals(unit: IUnit, mode: string) {
-        if (!this.app) return;
+        if (!sharedApp) return;
         // @ts-ignore
         if (!unit.view) return;
         const view = unit.view as Sprite;
@@ -485,46 +528,5 @@ export class WorldRenderer {
     public addParticle(p: any) {
         this.particleLayer.addChild(p.view);
         this.activeParticles.push(p);
-    }
-
-    public destroy() {
-        this.isDestroyed = true;
-        
-        // Remove Listeners safely
-        this.events.off('FX', this.handleFxEventBound);
-        this.events.off('STAMP_DECAL', this.stampDecalBound);
-        this.events.off('TERRAIN_UPDATE', this.drawTerrainBound);
-        this.events.off('HARVEST_NODES_UPDATED', this.drawHarvestNodesBound);
-
-        if (this.app?.ticker) {
-            this.app.ticker.stop();
-        }
-
-        if (this.decalRenderTexture) {
-            try { this.decalRenderTexture.destroy(true); } catch(e) {}
-        }
-        
-        // Use v8 safe destroy
-        if (this.app) {
-            try {
-                // Critical Fix: Only destroy if renderer exists to avoid internal pixi errors
-                if (this.app.renderer) {
-                    this.app.destroy({ removeView: true }, { children: true, texture: true, textureSource: true, context: true });
-                } else {
-                    console.warn("WorldRenderer: App initialization incomplete, skipping destroy");
-                }
-            } catch (e) {
-                console.warn("Pixi App destroy warning:", e);
-            }
-            this.app = null;
-        }
-
-        // Critical Fix: Unload bundle to prevent texture context conflicts on re-init
-        Assets.unloadBundle('units').catch(() => {});
-        
-        this.obstacleGraphics = [];
-        this.harvestNodeGraphics = [];
-        this.unitTextures.clear();
-        this.activeParticles = [];
     }
 }
