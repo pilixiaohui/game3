@@ -496,4 +496,5 @@ export interface IUnit {
     view: any; 
     geneConfig: GeneConfig[];
     state: string;
+    lastHitTime: number;
 }

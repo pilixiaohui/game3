@@ -31,6 +31,7 @@ export class Unit implements IUnit {
   view: Sprite | null = null;
   statuses: Partial<Record<StatusType, any>> = {};
   geneConfig: GeneConfig[] = [];
+  lastHitTime: number = 0;
 
   constructor(id: number) { 
       this.id = id; 
@@ -69,6 +70,7 @@ export class UnitPool {
     unit.wanderTimer = 0; unit.wanderDir = 1; unit.frameOffset = Math.floor(Math.random() * 60); 
     unit.steeringForce = {x:0, y:0};
     unit.velocity = {x:0, y:0};
+    unit.lastHitTime = 0;
 
     // Calculate Stats
     let stats: UnitRuntimeStats;

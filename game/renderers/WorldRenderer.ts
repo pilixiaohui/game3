@@ -1,8 +1,10 @@
+
 import { Application, Container, Graphics, TilingSprite, Text, TextStyle, Texture, Sprite, RenderTexture } from 'pixi.js';
 import { IUnit, ObstacleDef, UnitType, Faction, IFxEvent, HarvestNodeDef } from '../../types';
 import { LANE_Y, UNIT_CONFIGS, ELEMENT_COLORS } from '../../constants';
 import { SimpleEventEmitter } from '../DataManager';
 import { AssetManager } from '../AssetManager';
+import { TextureFactory } from '../TextureFactory';
 
 export class WorldRenderer {
     public app: Application | null = null;
@@ -21,7 +23,6 @@ export class WorldRenderer {
     
     private obstacleGraphics: Graphics[] = [];
     private harvestNodeGraphics: Graphics[] = [];
-    private unitTextures: Map<UnitType, Texture> = new Map();
     private decalContainer!: Container;
     private decalRenderTexture!: RenderTexture;
     private decalSprite!: Sprite;
@@ -59,10 +60,12 @@ export class WorldRenderer {
             return;
         }
 
+        // Initialize TextureFactory
+        TextureFactory.init(this.app.renderer);
+
         // 2. Append Canvas (app.view in v7)
         this.element.appendChild(this.app.view as unknown as HTMLElement);
 
-        this.loadUnitTextures();
         this.sharedStampSprite = new Sprite(Texture.EMPTY);
 
         // --- Setup Layers ---
@@ -107,8 +110,9 @@ export class WorldRenderer {
         
         this.unitLayer = new Container(); this.unitLayer.zIndex = 10;
         this.world.addChild(this.unitLayer);
+        
         this.unitLayerBack = new Container();
-        this.unitLayerMid = new Container();
+        this.unitLayerMid = new Container(); // This holds the main unit sprites
         this.unitLayerFront = new Container();
         this.unitLayer.addChild(this.unitLayerBack, this.unitLayerMid, this.unitLayerFront);
         
@@ -126,83 +130,34 @@ export class WorldRenderer {
         this.events.on('TERRAIN_UPDATE', (obstacles: ObstacleDef[]) => this.drawTerrain(obstacles));
         this.events.on('HARVEST_NODES_UPDATED', (nodes: HarvestNodeDef[]) => this.drawHarvestNodes(nodes));
     }
-
-    private loadUnitTextures() {
-        if (!this.app) return;
-        Object.values(UnitType).forEach(type => {
-            const unitType = type as UnitType;
-            const assetTex = AssetManager.instance.getTexture(unitType);
-            if (assetTex) { this.unitTextures.set(unitType, assetTex); return; }
-            const config = UNIT_CONFIGS[unitType];
-            if (!config) return;
-            
-            const g = new Graphics();
-            const width = config.baseStats.width;
-            const height = config.baseStats.height;
-            const color = config.baseStats.color;
-            
-            // Generate Texture using Graphics
-            const visual = config.visual;
-            const sScale = visual?.shadowScale || 1.0;
-            
-            // Shadow
-            g.beginFill(0x000000, 0.4);
-            g.drawEllipse(0, 0, (width / 1.8) * sScale, (width / 4) * sScale);
-            g.endFill();
-
-            if (visual && visual.shapes) {
-                for (const shape of visual.shapes) {
-                    const shapeColor = shape.color !== undefined ? shape.color : color;
-                    const w = width * (shape.widthPct ?? 1.0);
-                    const h = height * (shape.heightPct ?? 1.0);
-                    const cx = width * (shape.xOffPct ?? 0);
-                    const cy = -height/2 + (height * (shape.yOffPct ?? 0)); 
-
-                    g.beginFill(shapeColor);
-                    if (shape.type === 'ROUNDED_RECT') {
-                        g.drawRoundedRect(cx - w/2, cy - h/2, w, h, shape.cornerRadius || 4);
-                    } else if (shape.type === 'RECT') {
-                        g.drawRect(cx - w/2, cy - h/2, w, h);
-                    } else if (shape.type === 'CIRCLE') {
-                        const r = shape.radiusPct ? width * shape.radiusPct : w/2;
-                        g.drawCircle(cx, cy, r);
-                    }
-                    g.endFill();
-                }
-            } else {
-                g.beginFill(color);
-                g.drawRect(-width/2, -height, width, height); // Body
-                g.endFill();
-            }
-            // Eye
-            g.beginFill(0xff00ff, 0.9);
-            g.drawCircle(width * 0.2, -height + (height * 0.2), 2);
-            g.endFill();
-
-            const texture = this.app!.renderer.generateTexture(g);
-            this.unitTextures.set(unitType, texture);
-            g.destroy();
-        });
-    }
     
     public initUnitView(unit: IUnit) {
+        // Create Sprite with placeholder, texture assigned later via assignTexture
         const sprite = new Sprite(Texture.EMPTY);
-        sprite.anchor.set(0.5, 1.0);
+        // Anchor is handled by TextureFactory baked textures, but we default here
+        sprite.anchor.set(0.5, 1.0); 
         unit.view = sprite;
         this.unitLayerMid.addChild(sprite);
     }
+
     public assignTexture(unit: IUnit) {
         if (!unit.view) return;
-        const texture = this.unitTextures.get(unit.type);
+        
+        // Priority: Asset Manager -> TextureFactory -> Empty
+        const assetTex = AssetManager.instance.getTexture(unit.type);
+        const texture = assetTex || TextureFactory.getTexture(unit.type);
+        
         if (texture) (unit.view as Sprite).texture = texture;
     }
+
     private stampDecal(data: any) {
         if (!this.app) return;
-        const tex = this.unitTextures.get(data.type);
+        const assetTex = AssetManager.instance.getTexture(data.type);
+        const tex = assetTex || TextureFactory.getTexture(data.type);
         if (!tex) return;
         const s = this.sharedStampSprite;
         s.texture = tex;
-        s.anchor.set(0.5, 1.0);
+        s.anchor.set(tex.defaultAnchor.x, tex.defaultAnchor.y); // Use texture's anchor
         s.position.set(data.x, data.y - LANE_Y);
         s.rotation = data.rotation;
         s.scale.set(data.scaleX, 1.0);
@@ -323,8 +278,18 @@ export class WorldRenderer {
     public renderHpBars(activeUnits: IUnit[]) {
         if (!this.hpBarGraphics) return;
         this.hpBarGraphics.clear();
+        
+        const now = Date.now();
+
         for (const unit of activeUnits) {
+            // Optimization: Only render if recently hit (2s) or damaged heavily
+            // Or hovered (future).
             if (!unit.active || unit.isDead || unit.stats.hp >= unit.stats.maxHp) continue;
+            
+            // Only draw if damaged AND hit recently (within 2s)
+            // This massively reduces draw calls for units just sitting around or healing
+            if (now - unit.lastHitTime > 2000) continue;
+
             const pct = Math.max(0, unit.stats.hp / unit.stats.maxHp);
             const barW = 20;
             const barH = 3;
@@ -465,7 +430,7 @@ export class WorldRenderer {
 
         this.obstacleGraphics = [];
         this.harvestNodeGraphics = [];
-        this.unitTextures.clear();
+        // this.unitTextures.clear(); // Handled by TextureFactory cache now
         this.activeParticles = [];
     }
 }

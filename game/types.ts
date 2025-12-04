@@ -410,6 +410,7 @@ export interface ObstacleDef {
     x: number; y: number; width: number; height: number;
     health?: number;
     maxHealth?: number;
+    chunkId?: string;
 }
 
 export interface ChunkTemplate {
@@ -417,6 +418,7 @@ export interface ChunkTemplate {
     width: number;
     obstacles: ObstacleDef[];
     spawnPoints: { x: number, y: number, type: string }[];
+    isStronghold?: boolean;
 }
 
 export interface HarvestNodeDef {
@@ -440,9 +442,16 @@ export interface IGameEngine {
     };
     _sharedQueryBuffer: IUnit[]; 
     activeObstacles: ObstacleDef[];
-    events: { emit: (event: string, data?: any) => void; on: (event: string, fn: (data: any) => void) => void };
+    events: { emit: (event: string, data?: any) => void; on: (event: string, fn: (data: any) => void) => void; off: (event: string, fn: (data: any) => void) => void; };
     
     setMode(mode: 'COMBAT_VIEW' | 'HARVEST_VIEW' | 'HIVE', params?: any): void;
+    
+    levelManager?: {
+         getFlowVector: (x: number, y: number) => { x: number, y: number };
+    };
+    renderer?: {
+        renderHpBars: (units: IUnit[]) => void;
+    };
 }
 
 export interface GeneTrait {
@@ -482,7 +491,9 @@ export interface IUnit {
     waveOffset: number;
     frameOffset: number; 
     steeringForce: { x: number, y: number };
+    velocity: { x: number, y: number };
     view: any; 
     geneConfig: GeneConfig[];
     state: string;
+    lastHitTime: number;
 }

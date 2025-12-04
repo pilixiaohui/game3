@@ -1,5 +1,6 @@
 
 
+
 import { IGameEngine, IUnit, Faction, StatusType, ObstacleDef } from '../../types';
 import { UnitPool, Unit } from '../Unit';
 import { SpatialHash } from '../SpatialHash';
@@ -191,6 +192,7 @@ export class CombatSystem {
     private dealTrueDamage(target: IUnit, amount: number) {
         if (target.isDead) return;
         target.stats.hp -= amount;
+        target.lastHitTime = Date.now();
         if (target.stats.hp <= 0) { target.stats.hp = 0; this.killUnit(target); }
     }
 
@@ -246,6 +248,7 @@ export class CombatSystem {
 
         // 3. Application
         target.stats.hp -= damageTaken;
+        target.lastHitTime = Date.now();
         this.engine.events.emit('FX', { 
             type: 'DAMAGE_POP', 
             x: target.x, y: target.y - 10, 
