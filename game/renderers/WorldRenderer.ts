@@ -7,7 +7,7 @@ import { AssetManager } from '../AssetManager';
 
 export class WorldRenderer {
     public app: Application | null = null;
-    public world: Container;
+    public world!: Container;
     
     private bgLayer!: TilingSprite;
     private groundLayer!: TilingSprite;
@@ -74,7 +74,9 @@ export class WorldRenderer {
         
         // Critical Check: If destroyed during await, cleanup and exit
         if (this.isDestroyed) {
-            this.app.destroy(true, { children: true, texture: true, textureSource: true, context: true });
+            try {
+                this.app.destroy(true, { children: true, texture: true, textureSource: true, context: true });
+            } catch (e) { console.warn("Cleanup destroy failed", e); }
             this.app = null;
             return;
         }
