@@ -73,6 +73,11 @@ export class GameEngine implements IGameEngine {
 
   async init(element: HTMLElement) {
     this.renderer = new WorldRenderer(element, this.events);
+    
+    // Asynchronous PixiJS v8 Initialization
+    await this.renderer.init();
+
+    // UnitPool depends on renderer being ready
     this.unitPool = new UnitPool(1500, this.renderer);
     
     // Initialize Systems
@@ -83,7 +88,7 @@ export class GameEngine implements IGameEngine {
     this.deploymentSystem = new DeploymentSystem(this.unitPool, this.levelManager, this.events);
 
     // @ts-ignore
-    this.renderer.app.view.addEventListener('wheel', this.handleWheel, { passive: false });
+    this.renderer.app.canvas.addEventListener('wheel', this.handleWheel, { passive: false });
     this.renderer.app.renderer.on('resize', this.resize.bind(this));
     this.resize(); 
 
@@ -125,11 +130,11 @@ export class GameEngine implements IGameEngine {
   }
 
   private cleanupCurrentMode() {
-      // Must disable systems to unbind events
-      this.combatSystem.disable();
-      this.deploymentSystem.isEnabled = false;
-      this.harvestSystem.cleanup();
-      this.hiveVisualSystem.cleanup();
+      // Must disable systems to unbind events with safety check
+      this.combatSystem?.disable();
+      if (this.deploymentSystem) this.deploymentSystem.isEnabled = false;
+      this.harvestSystem?.cleanup();
+      this.hiveVisualSystem?.cleanup();
   }
 
   private applyModeSettings() {

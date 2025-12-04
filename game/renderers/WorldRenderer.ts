@@ -8,40 +8,58 @@ export class WorldRenderer {
     public app: Application;
     public world: Container;
     
-    private bgLayer: TilingSprite;
-    private groundLayer: TilingSprite;
-    public unitLayer: ParticleContainer; 
-    public terrainLayer: Container;
-    public particleLayer: Container;
-    public hiveLayer: Container;
-    public uiLayer: Container;
+    private bgLayer!: TilingSprite;
+    private groundLayer!: TilingSprite;
+    public unitLayer!: ParticleContainer; 
+    public terrainLayer!: Container;
+    public particleLayer!: Container;
+    public hiveLayer!: Container;
+    public uiLayer!: Container;
     
     private obstacleGraphics: Graphics[] = [];
     private harvestNodeGraphics: Graphics[] = [];
     private unitTextures: Map<UnitType, Texture> = new Map();
     
     // Decal System
-    private decalContainer: Container;
-    private decalRenderTexture: RenderTexture;
-    private decalSprite: Sprite;
-    private sharedStampSprite: Sprite; // Shared sprite for stamping
+    private decalContainer!: Container;
+    private decalRenderTexture!: RenderTexture;
+    private decalSprite!: Sprite;
+    private sharedStampSprite!: Sprite; // Shared sprite for stamping
     
     // HP Bar Batching
-    private hpBarGraphics: Graphics;
+    private hpBarGraphics!: Graphics;
     
     // Throttle sorting
     private sortTimer: number = 0;
 
+    private element: HTMLElement;
+    private events: SimpleEventEmitter;
+
     constructor(element: HTMLElement, events: SimpleEventEmitter) {
-        this.app = new Application({ 
-            resizeTo: element, 
+        this.element = element;
+        this.events = events;
+        
+        // Initialize lightweight containers
+        this.app = new Application();
+        this.world = new Container();
+        this.obstacleGraphics = [];
+        this.harvestNodeGraphics = [];
+        this.unitTextures = new Map();
+        this.activeParticles = [];
+    }
+
+    public async init() {
+        // Asynchronous initialization for PixiJS v8
+        await this.app.init({ 
+            resizeTo: this.element, 
             backgroundColor: 0x0a0a0a, 
             antialias: false, 
             resolution: window.devicePixelRatio || 1, 
             autoDensity: true 
         });
+        
         // @ts-ignore
-        element.appendChild(this.app.view);
+        this.element.appendChild(this.app.canvas);
 
         this.bakeUnitTextures();
         this.sharedStampSprite = new Sprite(Texture.EMPTY);
@@ -110,11 +128,11 @@ export class WorldRenderer {
         this.uiLayer.addChild(this.hpBarGraphics);
 
         // Listen for FX Events
-        events.on('FX', this.handleFxEvent.bind(this));
-        events.on('STAMP_DECAL', this.stampDecal.bind(this));
+        this.events.on('FX', this.handleFxEvent.bind(this));
+        this.events.on('STAMP_DECAL', this.stampDecal.bind(this));
         
-        events.on('TERRAIN_UPDATE', (obstacles: ObstacleDef[]) => this.drawTerrain(obstacles));
-        events.on('HARVEST_NODES_UPDATED', (nodes: HarvestNodeDef[]) => this.drawHarvestNodes(nodes));
+        this.events.on('TERRAIN_UPDATE', (obstacles: ObstacleDef[]) => this.drawTerrain(obstacles));
+        this.events.on('HARVEST_NODES_UPDATED', (nodes: HarvestNodeDef[]) => this.drawHarvestNodes(nodes));
     }
 
     private bakeUnitTextures() {
