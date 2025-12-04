@@ -28,7 +28,7 @@ export const GameCanvas = forwardRef<HTMLDivElement, GameCanvasProps>(({
         let engineInstance: GameEngine | null = null;
 
         const initGame = async () => {
-            // Clean up any potential lingering engine from double-fire
+            // Clean up any potential lingering engine from double-fire (though effect cleanup handles this usually)
             if (engineRef.current) {
                 engineRef.current.destroy();
                 engineRef.current = null;
@@ -44,6 +44,7 @@ export const GameCanvas = forwardRef<HTMLDivElement, GameCanvasProps>(({
                 // Critical Check: If component unmounted during async init, destroy immediately
                 if (!isMounted) {
                     newEngine.destroy();
+                    engineRef.current = null;
                     return;
                 }
 
@@ -61,7 +62,9 @@ export const GameCanvas = forwardRef<HTMLDivElement, GameCanvasProps>(({
 
             } catch (err) {
                 console.error("GameEngine init failed:", err);
-                newEngine.destroy();
+                if (engineInstance) {
+                    engineInstance.destroy();
+                }
                 engineRef.current = null;
             }
         };
@@ -70,14 +73,16 @@ export const GameCanvas = forwardRef<HTMLDivElement, GameCanvasProps>(({
 
         return () => {
             isMounted = false;
-            if (engineRef.current) {
-                engineRef.current.destroy();
-                engineRef.current = null;
-            }
-            // Also cleanup instance if it was created but not yet assigned to ref
-            if (engineInstance && engineInstance !== engineRef.current) {
+            // cleanup local instance variable if it exists (covers mid-init case)
+            if (engineInstance) {
                 engineInstance.destroy();
             }
+            // cleanup ref if different (covers double mount case)
+            if (engineRef.current && engineRef.current !== engineInstance) {
+                engineRef.current.destroy();
+            }
+            engineRef.current = null;
+            
             // DOM Cleanup
             if (container) {
                 while (container.firstChild) container.removeChild(container.firstChild);

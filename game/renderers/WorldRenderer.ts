@@ -1,3 +1,4 @@
+
 import { Application, Container, Graphics, TilingSprite, Text, TextStyle, Texture, Sprite, RenderTexture, Rectangle } from 'pixi.js';
 import { IUnit, ObstacleDef, UnitType, Faction, IFxEvent, HarvestNodeDef } from '../../types';
 import { LANE_Y, UNIT_CONFIGS, ELEMENT_COLORS } from '../../constants';
@@ -40,6 +41,7 @@ export class WorldRenderer {
     private events: SimpleEventEmitter;
 
     public activeParticles: any[] = [];
+    private isDestroyed: boolean = false;
 
     constructor(element: HTMLElement, events: SimpleEventEmitter) {
         this.element = element;
@@ -52,8 +54,11 @@ export class WorldRenderer {
     }
 
     public async init() {
+        if (this.isDestroyed) return;
+
         // 0. Preload Assets
         await AssetManager.instance.loadResources();
+        if (this.isDestroyed) return;
 
         // 1. Create Application Instance
         this.app = new Application();
@@ -67,6 +72,13 @@ export class WorldRenderer {
             autoDensity: true 
         });
         
+        // Critical Check: If destroyed during await, cleanup and exit
+        if (this.isDestroyed) {
+            this.app.destroy(true, { children: true, texture: true, textureSource: true, context: true });
+            this.app = null;
+            return;
+        }
+
         // 3. Append Canvas
         // @ts-ignore
         if (this.app.canvas) {
@@ -499,20 +511,27 @@ export class WorldRenderer {
     }
 
     public destroy() {
+        this.isDestroyed = true;
         // Stop ticker
         if (this.app?.ticker) {
             this.app.ticker.stop();
         }
         
         // Full destroy to clear context
-        this.app?.destroy(true, { 
-            children: true, 
-            texture: true, 
-            textureSource: true, 
-            context: true 
-        });
+        if (this.app) {
+            try {
+                this.app.destroy(true, { 
+                    children: true, 
+                    texture: true, 
+                    textureSource: true, 
+                    context: true 
+                });
+            } catch (e) {
+                console.warn("Pixi App destroy failed", e);
+            }
+            this.app = null;
+        }
         
-        this.app = null;
         this.obstacleGraphics = [];
         this.unitTextures.clear();
     }
