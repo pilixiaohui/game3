@@ -53,8 +53,13 @@ export const GameCanvas = forwardRef<HTMLDivElement, GameCanvasProps>(({
                 // 1. Cleanup DOM
                 while (container.firstChild) container.removeChild(container.firstChild);
 
-                // --- HOTFIX: Tiny delay to allow Pixi GC ---
-                await new Promise(resolve => setTimeout(resolve, 10));
+                // --- HOTFIX: Increased delay to allow Pixi GC ---
+                await new Promise(resolve => setTimeout(resolve, 50));
+
+                if (!isMounted) {
+                    releaseLock!();
+                    return;
+                }
 
                 // 2. Create & Init
                 const newEngine = new GameEngine(isSimulationAuthority);
@@ -65,7 +70,12 @@ export const GameCanvas = forwardRef<HTMLDivElement, GameCanvasProps>(({
                 // 3. Post-Init Check
                 if (!isMounted) {
                     // Component unmounted during init -> Destroy immediately
-                    newEngine.destroy();
+                    if (newEngine.renderer && newEngine.renderer.app && newEngine.renderer.app.renderer) {
+                         newEngine.destroy();
+                    } else {
+                         // Safe fallback if init didn't complete
+                         try { newEngine.destroy(); } catch (e) {}
+                    }
                 } else {
                     // Success -> Bind
                     engineRef.current = newEngine;
@@ -83,8 +93,8 @@ export const GameCanvas = forwardRef<HTMLDivElement, GameCanvasProps>(({
                 console.error("GameEngine init failed:", err);
                 // Safe cleanup on error
                 try { 
-                    engineInstance?.destroy(); 
-                } catch (e) { /* ignore cleanup error */ }
+                    if (engineInstance) engineInstance.destroy(); 
+                } catch (e) { console.warn("Cleanup failed", e); }
                 engineRef.current = null;
             } finally {
                 // Always release lock

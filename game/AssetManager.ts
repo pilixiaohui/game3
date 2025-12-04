@@ -1,4 +1,3 @@
-
 import { Assets, Texture } from 'pixi.js';
 import { UnitType } from '../types';
 
@@ -21,11 +20,6 @@ export class AssetManager {
     }
 
     public async loadResources() {
-        // Check if bundle already exists to prevent React StrictMode errors
-        if (Assets.resolver.hasBundle('units')) {
-            return;
-        }
-
         const bundles: any = {
             units: {}
         };
@@ -40,9 +34,16 @@ export class AssetManager {
 
         if (hasAssets) {
             try {
-                Assets.addBundle('units', bundles.units);
+                // If bundle exists, we assume it's already configured.
+                // We do not remove it because removeBundle is not available on Resolver in recent Pixi versions
+                // and unloading assets doesn't remove the bundle definition.
+                if (!Assets.resolver.hasBundle('units')) {
+                    Assets.addBundle('units', bundles.units);
+                }
+                
                 const loaded = await Assets.loadBundle('units');
                 
+                this.textures.clear();
                 for (const [key, tex] of Object.entries(loaded)) {
                     this.textures.set(key, tex as Texture);
                 }

@@ -1,5 +1,5 @@
 
-import { Application, Container, Graphics, TilingSprite, Text, TextStyle, Texture, Sprite, RenderTexture, Rectangle } from 'pixi.js';
+import { Application, Container, Graphics, TilingSprite, Text, TextStyle, Texture, Sprite, RenderTexture, Rectangle, Assets } from 'pixi.js';
 import { IUnit, ObstacleDef, UnitType, Faction, IFxEvent, HarvestNodeDef } from '../../types';
 import { LANE_Y, UNIT_CONFIGS, ELEMENT_COLORS } from '../../constants';
 import { SimpleEventEmitter } from '../DataManager';
@@ -70,7 +70,10 @@ export class WorldRenderer {
         });
 
         if (this.isDestroyed) {
-            this.app.destroy();
+            // Safety check if destroyed while initializing
+            if (this.app.renderer) {
+                this.app.destroy(true);
+            }
             return;
         }
 
@@ -504,16 +507,20 @@ export class WorldRenderer {
         // Use v8 safe destroy
         if (this.app) {
             try {
+                // Critical Fix: Only destroy if renderer exists to avoid internal pixi errors
                 if (this.app.renderer) {
                     this.app.destroy({ removeView: true }, { children: true, texture: true, textureSource: true, context: true });
                 } else {
-                    this.app.destroy();
+                    console.warn("WorldRenderer: App initialization incomplete, skipping destroy");
                 }
             } catch (e) {
                 console.warn("Pixi App destroy warning:", e);
             }
             this.app = null;
         }
+
+        // Critical Fix: Unload bundle to prevent texture context conflicts on re-init
+        Assets.unloadBundle('units').catch(() => {});
         
         this.obstacleGraphics = [];
         this.harvestNodeGraphics = [];
