@@ -513,27 +513,41 @@ export class WorldRenderer {
 
     public destroy() {
         this.isDestroyed = true;
-        // Stop ticker
+        
+        // Stop ticker if app exists
         if (this.app?.ticker) {
             this.app.ticker.stop();
         }
+
+        // 1. Clean up textures manually if needed
+        if (this.decalRenderTexture) {
+            try { this.decalRenderTexture.destroy(true); } catch(e) {}
+        }
         
-        // Full destroy to clear context
+        // 2. Safe App Destroy
         if (this.app) {
             try {
-                this.app.destroy(true, { 
-                    children: true, 
-                    texture: true, 
-                    textureSource: true, 
-                    context: true 
-                });
+                // Only use complex options if renderer exists
+                if (this.app.renderer) {
+                    this.app.destroy(true, { 
+                        children: true, 
+                        texture: true, 
+                        textureSource: true, 
+                        context: true 
+                    });
+                } else {
+                    // Fallback for partial init
+                    this.app.destroy();
+                }
             } catch (e) {
-                console.warn("Pixi App destroy failed", e);
+                console.warn("Pixi App destroy warning:", e);
             }
             this.app = null;
         }
         
         this.obstacleGraphics = [];
+        this.harvestNodeGraphics = [];
         this.unitTextures.clear();
+        this.activeParticles = [];
     }
 }

@@ -1,3 +1,4 @@
+
 import { Assets, Texture } from 'pixi.js';
 import { UnitType } from '../types';
 
@@ -20,6 +21,11 @@ export class AssetManager {
     }
 
     public async loadResources() {
+        // Check if bundle already exists to prevent React StrictMode errors
+        if (Assets.resolver.hasBundle('units')) {
+            return;
+        }
+
         const bundles: any = {
             units: {}
         };

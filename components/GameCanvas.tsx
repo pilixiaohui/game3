@@ -53,6 +53,9 @@ export const GameCanvas = forwardRef<HTMLDivElement, GameCanvasProps>(({
                 // 1. Cleanup DOM
                 while (container.firstChild) container.removeChild(container.firstChild);
 
+                // --- HOTFIX: Tiny delay to allow Pixi GC ---
+                await new Promise(resolve => setTimeout(resolve, 10));
+
                 // 2. Create & Init
                 const newEngine = new GameEngine(isSimulationAuthority);
                 engineInstance = newEngine; // Local ref for cleanup
