@@ -1,5 +1,4 @@
 
-
 import { ObstacleDef } from '../types';
 import { LANE_Y } from '../../constants';
 
@@ -15,7 +14,7 @@ export class FlowField {
         this.field = new Float32Array(0);
     }
 
-    public update(obstacles: ObstacleDef[], startX: number, endX: number) {
+    public update(obstacles: ObstacleDef[], siegeTargets: ObstacleDef[], isSiege: boolean, startX: number, endX: number) {
         this.offset.x = Math.floor(startX / this.cellSize) * this.cellSize;
         this.offset.y = -200; // Fixed vertical range covering lanes
         this.width = endX - startX + 400; // Buffer
@@ -35,6 +34,10 @@ export class FlowField {
 
         // 1. Mark Obstacles
         for (const obs of obstacles) {
+             // CRITICAL: In Siege mode, the target walls should NOT be obstacles (1).
+             // They should be treated as empty or goals so units flow TOWARDS them.
+             if (isSiege && siegeTargets.includes(obs)) continue;
+
              const ox = obs.x - this.offset.x;
              const oy = (LANE_Y + obs.y) - this.offset.y;
              
@@ -53,12 +56,38 @@ export class FlowField {
              }
         }
 
-        // 2. Seed Goal (Right Edge)
-        for (let y = 0; y < this.rows; y++) {
-            const idx = y * this.cols + (this.cols - 1);
-            if (gridObstacles[idx] === 0) {
-                distanceField[idx] = 0;
-                queue.push(idx);
+        // 2. Seed Goals
+        if (isSiege && siegeTargets.length > 0) {
+            // SIEGE MODE: Goal is the wall itself (or cells inside/touching it)
+            for (const target of siegeTargets) {
+                 const ox = target.x - this.offset.x;
+                 const oy = (LANE_Y + target.y) - this.offset.y;
+                 
+                 const minCx = Math.floor((ox - target.width/2) / this.cellSize);
+                 const maxCx = Math.floor((ox + target.width/2) / this.cellSize);
+                 const minCy = Math.floor((oy - target.height) / this.cellSize);
+                 const maxCy = Math.floor(oy / this.cellSize);
+
+                 for (let cy = minCy; cy <= maxCy; cy++) {
+                     for (let cx = minCx; cx <= maxCx; cx++) {
+                         if (cx >= 0 && cx < this.cols && cy >= 0 && cy < this.rows) {
+                             const idx = cy * this.cols + cx;
+                             // Force overwrite even if marked as obstacle (though we skipped marking above)
+                             gridObstacles[idx] = 0; 
+                             distanceField[idx] = 0;
+                             queue.push(idx);
+                         }
+                     }
+                 }
+            }
+        } else {
+            // MARCH MODE: Goal is Right Edge
+            for (let y = 0; y < this.rows; y++) {
+                const idx = y * this.cols + (this.cols - 1);
+                if (gridObstacles[idx] === 0) {
+                    distanceField[idx] = 0;
+                    queue.push(idx);
+                }
             }
         }
 
@@ -118,8 +147,8 @@ export class FlowField {
                 }
 
                 if (vx === 0 && vy === 0 && distanceField[idx] < 9999) {
-                     // Fallback for local minima or end: point right
-                     vx = 1;
+                     // Fallback for local minima or end: point right (default flow)
+                     if (!isSiege) vx = 1;
                 }
 
                 this.field[fIdx] = vx;

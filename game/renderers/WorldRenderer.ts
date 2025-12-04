@@ -1,6 +1,5 @@
 
-
-import { Application, Container, Graphics, TilingSprite, Text, TextStyle, Texture, Sprite, RenderTexture, Rectangle } from 'pixi.js';
+import { Application, Container, Graphics, TilingSprite, Text, TextStyle, Texture, Sprite, RenderTexture, Rectangle, ParticleContainer, Particle } from 'pixi.js';
 import { IUnit, ObstacleDef, UnitType, Faction, IFxEvent, HarvestNodeDef } from '../../types';
 import { LANE_Y, UNIT_CONFIGS, ELEMENT_COLORS } from '../../constants';
 import { SimpleEventEmitter } from '../DataManager';
@@ -11,7 +10,7 @@ export class WorldRenderer {
     
     private bgLayer: TilingSprite;
     private groundLayer: TilingSprite;
-    public unitLayer: Container; 
+    public unitLayer: ParticleContainer; 
     public terrainLayer: Container;
     public particleLayer: Container;
     public hiveLayer: Container;
@@ -85,9 +84,17 @@ export class WorldRenderer {
 
         this.hiveLayer = new Container(); this.hiveLayer.zIndex = 6;
         
-        // High Performance Unit Layer
-        // Replaced ParticleContainer with Container to fix version mismatch error.
-        this.unitLayer = new Container();
+        // High Performance Unit Layer (ParticleContainer v8)
+        // Explicitly enabling dynamic properties for the GPU batcher
+        this.unitLayer = new ParticleContainer({
+            dynamicProperties: {
+                position: true,
+                rotation: true,
+                scale: true,
+                tint: true,
+                alpha: true
+            }
+        });
         this.unitLayer.zIndex = 10;
         
         this.particleLayer = new Container(); this.particleLayer.zIndex = 20;
@@ -164,18 +171,27 @@ export class WorldRenderer {
     }
 
     public initUnitView(unit: IUnit) {
-        // Create Sprite with empty texture initially
-        const sprite = new Sprite(Texture.EMPTY);
-        sprite.anchor.set(0.5, 1.0);
-        unit.view = sprite;
-        this.unitLayer.addChild(sprite);
+        // v8 Particle System: Use Particle class, not Sprite
+        const particle = new Particle({
+            texture: Texture.EMPTY,
+            x: 0, 
+            y: 0,
+            scaleX: 1, 
+            scaleY: 1,
+            rotation: 0,
+            alpha: 1,
+            tint: 0xffffff
+        });
+        
+        unit.view = particle;
+        this.unitLayer.addParticle(particle);
     }
 
     public assignTexture(unit: IUnit) {
         if (!unit.view) return;
         const texture = this.unitTextures.get(unit.type);
         if (texture) {
-            (unit.view as Sprite).texture = texture;
+            (unit.view as Particle).texture = texture;
         }
     }
 
@@ -264,7 +280,7 @@ export class WorldRenderer {
     public updateUnitVisuals(unit: IUnit, mode: string) {
         // @ts-ignore
         if (!unit.view) return;
-        const view = unit.view as Sprite;
+        const view = unit.view as Particle;
 
         if (unit.isDead || !unit.active) {
              view.alpha = 0; // Hide it
@@ -272,7 +288,8 @@ export class WorldRenderer {
         }
 
         view.alpha = unit.context.isBurrowed ? 0.5 : 1.0;
-        view.position.set(unit.x, unit.y);
+        view.x = unit.x;
+        view.y = unit.y;
         
         let scaleX = 1.0;
         let scaleY = 1.0;
@@ -281,17 +298,15 @@ export class WorldRenderer {
             const dir = (unit.faction === Faction.ZERG) ? 1 : -1;
             
             // JUICINESS: Squash and Stretch based on real-time velocity
-            // Uses velocity passed from physics system
             if (unit.velocity) {
                 const speedSq = unit.velocity.x * unit.velocity.x + unit.velocity.y * unit.velocity.y;
-                if (speedSq > 100) { // Threshhold to avoid jitter
+                if (speedSq > 200) { 
                      const speed = Math.sqrt(speedSq);
                      const maxSpeed = unit.stats.speed || 1;
-                     // Cap deformation at 30%
                      const stretch = Math.min(0.3, (speed / maxSpeed) * 0.2);
                      
-                     scaleX = dir * (1 + stretch); // Stretch X (Forward)
-                     scaleY = 1 - stretch;         // Squash Y (Vertical)
+                     scaleX = dir * (1 + stretch); 
+                     scaleY = 1 - stretch;         
                 } else {
                      scaleX = dir;
                 }
@@ -313,16 +328,14 @@ export class WorldRenderer {
              view.tint = 0xffffff;
         }
 
-        view.scale.set(scaleX, scaleY);
+        view.scaleX = scaleX;
+        view.scaleY = scaleY;
         view.rotation = 0; 
     }
     
     public renderHpBars(activeUnits: IUnit[]) {
         this.hpBarGraphics.clear();
         for (const unit of activeUnits) {
-            // LOD: Only render HP bars if unit is active, alive, damaged, AND visibly on screen
-            // Since we don't have perfect bounds here, we check general range relative to camera or active status
-            // Assuming activeUnits are already culled by game logic to active chunks, we just check damage.
             if (!unit.active || unit.isDead || unit.stats.hp >= unit.stats.maxHp) continue;
             
             const pct = Math.max(0, unit.stats.hp / unit.stats.maxHp);

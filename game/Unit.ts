@@ -1,6 +1,5 @@
 
-
-import { Sprite } from 'pixi.js';
+import { Particle } from 'pixi.js';
 import { IUnit, UnitRuntimeStats, Faction, UnitType, GameModifiers, StatusType, GeneConfig } from '../types';
 import { UNIT_CONFIGS, LANE_Y, LANE_HEIGHT } from '../constants';
 import { DataManager } from './DataManager';
@@ -29,7 +28,7 @@ export class Unit implements IUnit {
   frameOffset: number = 0;
   steeringForce: { x: number, y: number } = { x: 0, y: 0 };
   velocity: { x: number, y: number } = { x: 0, y: 0 };
-  view: Sprite | null = null;
+  view: Particle | null = null;
   statuses: Partial<Record<StatusType, any>> = {};
   geneConfig: GeneConfig[] = [];
 
@@ -96,9 +95,9 @@ export class UnitPool {
 
     // Init View
     if (unit.view) {
-      unit.view.visible = true;
       unit.view.alpha = 1.0;
-      unit.view.scale.set(1.0);
+      unit.view.scaleX = 1.0;
+      unit.view.scaleY = 1.0;
       unit.view.tint = 0xffffff;
       unit.view.rotation = 0;
       // Assign Texture
@@ -110,7 +109,7 @@ export class UnitPool {
   recycle(unit: Unit) {
     if (!unit.active) return;
     unit.active = false;
-    if (unit.view) unit.view.visible = false;
+    if (unit.view) unit.view.alpha = 0; // Hide via alpha since Particle has no visible property
     this.freeIndices.push(unit.id);
   }
   getActiveUnits(): Unit[] { return this.pool.filter(u => u.active); }

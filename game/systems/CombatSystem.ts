@@ -91,7 +91,7 @@ export class CombatSystem {
                     y: u.y, 
                     type: u.type, 
                     rotation: u.view ? u.view.rotation : 0,
-                    scaleX: u.view ? u.view.scale.x : 1
+                    scaleX: u.view ? u.view.scaleX : 1
                 });
                 this.unitPool.recycle(u);
             }

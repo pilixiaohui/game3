@@ -75,6 +75,8 @@ export class LevelManager {
              if (this.activeSiegeObstacleIds.size === 0) {
                  this.currentState = 'MARCH';
                  this.events.emit('FX', { type: 'TEXT', x: this.cameraX + 400, y: 0, text: "BREACH!", color: 0x00ff00, fontSize: 30 });
+                 // Update flow field immediately to switch back to rightward flow
+                 this.updateFlowField();
              } else {
                  // Lock camera to siege target
                  targetX = this.currentSiegeTargetX;
@@ -197,6 +199,8 @@ export class LevelManager {
                  if (this.activeSiegeObstacleIds.size > 0) {
                       this.currentState = 'SIEGE';
                       this.events.emit('FX', { type: 'TEXT', x: this.cameraX + 400, y: 0, text: "SIEGE DETECTED", color: 0xff0000, fontSize: 24 });
+                      // Update flow field immediately to point to walls
+                      this.updateFlowField();
                  }
             }
         }
@@ -223,7 +227,9 @@ export class LevelManager {
         // Optimize: Only update for visible range + buffer
         const startX = Math.max(0, this.cameraX - 500);
         const endX = this.cameraX + 2000;
-        this.flowField.update(this.activeObstacles, startX, endX);
+        
+        const siegeTargets = Array.from(this.activeSiegeObstacleIds);
+        this.flowField.update(this.activeObstacles, siegeTargets, this.currentState === 'SIEGE', startX, endX);
     }
     
     public getFlowVector(x: number, y: number) {

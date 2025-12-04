@@ -1,5 +1,4 @@
 
-
 import { GeneTrait, IUnit, ElementType, IGameEngine, StatusType, Faction, UnitType } from '../types';
 import { ELEMENT_COLORS, STATUS_CONFIG, UNIT_CONFIGS } from '../constants';
 
@@ -740,13 +739,12 @@ GeneLibrary.register({
         // Access LevelManager via engine interface
         // @ts-ignore
         const lm = engine.levelManager;
-        // Default forward vector if no flow field logic found, but now strictly flow
+        // @ts-ignore
+        const isSiege = lm?.currentState === 'SIEGE';
         const flow = lm ? lm.getFlowVector(self.x, self.y) : { x: (self.faction === Faction.ZERG ? 1 : -1), y: 0 };
         
         // HARVEST LOGIC OVERRIDE
         if (self.state === 'SEEK' || self.state === 'RETURN') {
-             // For harvesting, we use the pre-calculated steering force from HarvestSystem
-             // But applied here to keep physics consistent
              if (self.steeringForce.x !== 0 || self.steeringForce.y !== 0) {
                  velocity.x += self.steeringForce.x * speedMult * dt;
                  velocity.y += self.steeringForce.y * speedMult * dt;
@@ -763,8 +761,15 @@ GeneLibrary.register({
                 const dirY = (self.target.y - self.y) / dist;
                 
                 // IMPACT FIX: Reduce direct seek bias significantly to allow flow field (wall avoidance) to work
-                // Only bias heavily if very close (e.g. < 50px)
-                const bias = Math.min(0.6, 100 / (dist + 0.1)); 
+                // Only bias heavily if very close (e.g. < 50px) or NOT in Siege
+                // In Siege mode, flow vector is smarter (navigates maze OR hits wall), so trust it more.
+                
+                let bias = Math.min(0.6, 100 / (dist + 0.1)); 
+                if (isSiege) {
+                    // In siege, reduce direct seeking bias so units flow through the maze/to the wall naturally
+                    bias *= 0.5;
+                }
+
                 const finalX = dirX * bias + flow.x * (1 - bias);
                 const finalY = dirY * bias + flow.y * (1 - bias);
 
@@ -776,9 +781,6 @@ GeneLibrary.register({
         else {
             // When just marching, follow flow field heavily
             if (self.stats.speed > 0) {
-                // Adjust flow X based on faction direction if no target
-                // Zerg uses flow directly. Human reverses flow (defenders).
-                
                 const finalX = (self.faction === Faction.ZERG) ? flow.x : -flow.x;
                 const finalY = flow.y; 
                 
@@ -791,7 +793,6 @@ GeneLibrary.register({
         if (isMoving && self.state !== 'SEEK' && self.state !== 'RETURN' && self.state !== 'DEPOSIT') {
             self.state = 'MOVE';
         } else if (self.state !== 'ATTACK' && !isMoving) {
-            // If we aren't moving and not attacking, idle.
              if (self.state === 'MOVE') self.state = 'IDLE';
         }
     }
