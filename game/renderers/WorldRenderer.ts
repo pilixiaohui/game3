@@ -11,10 +11,9 @@ export class WorldRenderer {
     
     private bgLayer!: TilingSprite;
     private groundLayer!: TilingSprite;
-    
-    // Layers
     public unitLayer!: Container; 
-    // Buckets for depth sorting (Optimization: Day 2)
+    
+    // Buckets for depth sorting
     private unitLayerBack!: Container;
     private unitLayerMid!: Container;
     private unitLayerFront!: Container;
@@ -73,10 +72,11 @@ export class WorldRenderer {
         });
         
         // Critical Check: If destroyed during await, cleanup and exit
-        if (this.isDestroyed) {
+        if (this.isDestroyed || !this.app.renderer) {
             try {
-                this.app.destroy(true, { children: true, texture: true, textureSource: true, context: true });
-            } catch (e) { console.warn("Cleanup destroy failed", e); }
+                // Ensure partial init is cleaned up
+                this.app?.destroy(true);
+            } catch (e) { /* ignore */ }
             this.app = null;
             return;
         }
@@ -117,7 +117,6 @@ export class WorldRenderer {
 
         // World Container
         this.world = new Container();
-        // this.world.sortableChildren = true; // Optimization: Disable explicit sorting on root
         this.app.stage.addChild(this.world);
 
         // 1. Terrain & Decals
@@ -141,7 +140,7 @@ export class WorldRenderer {
         
         // 3. Units (Bucketed)
         this.unitLayer = new Container();
-        this.unitLayer.sortableChildren = false; // Optimization: Disable sorting
+        this.unitLayer.sortableChildren = false; 
         this.unitLayer.zIndex = 10;
         this.world.addChild(this.unitLayer);
 
@@ -232,7 +231,7 @@ export class WorldRenderer {
             g.drawCircle(width * 0.2, -height/2, 2);
             g.endFill();
 
-            const texture = this.app.renderer.generateTexture(g);
+            const texture = this.app!.renderer.generateTexture(g);
             this.unitTextures.set(unitType, texture);
         });
     }
@@ -360,7 +359,6 @@ export class WorldRenderer {
         view.alpha = unit.context.isBurrowed ? 0.5 : 1.0;
         view.x = unit.x;
         view.y = unit.y;
-        // view.zIndex = unit.y; // REMOVED Z-Sort
         
         let scaleX = 1.0;
         let scaleY = 1.0;
@@ -400,6 +398,7 @@ export class WorldRenderer {
     }
     
     public renderHpBars(activeUnits: IUnit[]) {
+        if (!this.hpBarGraphics) return;
         this.hpBarGraphics.clear();
         for (const unit of activeUnits) {
             if (!unit.active || unit.isDead || unit.stats.hp >= unit.stats.maxHp) continue;

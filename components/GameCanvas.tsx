@@ -11,6 +11,9 @@ interface GameCanvasProps {
     isSimulationAuthority?: boolean;
 }
 
+// GLOBAL MUTEX: Prevents parallel PixiJS initializations in Strict Mode
+let initializationQueue = Promise.resolve();
+
 export const GameCanvas = forwardRef<HTMLDivElement, GameCanvasProps>(({ 
     activeRegion, isCombat = true, mode, onEngineInit, isSimulationAuthority = false 
 }, ref) => {
@@ -19,71 +22,87 @@ export const GameCanvas = forwardRef<HTMLDivElement, GameCanvasProps>(({
 
     useImperativeHandle(ref, () => containerRef.current!);
 
-    // 1. One-time Initialization
+    // 1. Lifecycle Management
     useEffect(() => {
         const container = containerRef.current;
         if (!container) return;
 
+        let isMounted = true;
         let engineInstance: GameEngine | null = null;
-        let isMounted = true; // 🔒 Guard variable
 
-        const initGame = async () => {
-            // Cleanup any existing children first
-            while (container.firstChild) container.removeChild(container.firstChild);
+        const runSequence = async () => {
+            // Wait for any previous init/destroy cycles to finish completely
+            await initializationQueue;
 
-            // Create Engine
-            const engine = new GameEngine(isSimulationAuthority);
-            engineInstance = engine;
-            
+            // If component was unmounted while waiting in queue, abort
+            if (!isMounted) return;
+
+            // Start new critical section
+            let releaseLock: () => void;
+            const newLock = new Promise<void>((resolve) => { releaseLock = resolve; });
+            // Chain this new lock to the global queue immediately
+            initializationQueue = initializationQueue.then(() => newLock);
+
             try {
-                // Async Init
-                await engine.init(container);
-                
-                // If unmounted during await, destroy immediately and bail
-                if (!isMounted) {
-                    console.log("GameCanvas: Unmounted during init, destroying engine");
-                    engine.destroy();
+                // Double check references to avoid duplicates
+                if (engineRef.current) {
+                    releaseLock!();
                     return;
                 }
 
-                // Success
-                engineRef.current = engine;
-                onEngineInit(engine);
-                
-                // Set initial state
-                if (activeRegion) {
-                    engine.activeRegionId = activeRegion.id;
-                    engine.humanDifficultyMultiplier = activeRegion.difficultyMultiplier;
-                }
-                const initialMode = mode ? mode : (activeRegion ? 'COMBAT_VIEW' : 'HIVE');
-                engine.setMode(initialMode);
+                // 1. Cleanup DOM
+                while (container.firstChild) container.removeChild(container.firstChild);
 
+                // 2. Create & Init
+                const newEngine = new GameEngine(isSimulationAuthority);
+                engineInstance = newEngine; // Local ref for cleanup
+
+                await newEngine.init(container);
+
+                // 3. Post-Init Check
+                if (!isMounted) {
+                    // Component unmounted during init -> Destroy immediately
+                    newEngine.destroy();
+                } else {
+                    // Success -> Bind
+                    engineRef.current = newEngine;
+                    onEngineInit(newEngine);
+
+                    // Apply Initial State
+                    if (activeRegion) {
+                        newEngine.activeRegionId = activeRegion.id;
+                        newEngine.humanDifficultyMultiplier = activeRegion.difficultyMultiplier;
+                    }
+                    const initialMode = mode ? mode : (activeRegion ? 'COMBAT_VIEW' : 'HIVE');
+                    newEngine.setMode(initialMode);
+                }
             } catch (err) {
                 console.error("GameEngine init failed:", err);
-                if (isMounted) {
-                    engine.destroy();
-                    engineRef.current = null;
-                }
+                // Safe cleanup on error
+                try { 
+                    engineInstance?.destroy(); 
+                } catch (e) { /* ignore cleanup error */ }
+                engineRef.current = null;
+            } finally {
+                // Always release lock
+                releaseLock!();
             }
         };
 
-        initGame();
+        runSequence();
 
+        // Cleanup
         return () => {
             isMounted = false;
-            // Destroy the specific instance created in this effect
-            if (engineInstance) {
-                engineInstance.destroy();
-                engineInstance = null;
-            }
-            engineRef.current = null;
-            
-            // Clean DOM
-            if (container) {
-                while (container.firstChild) container.removeChild(container.firstChild);
+            // Only destroy if the engine was fully assigned to the ref.
+            // If it's still initializing (engineInstance exists but ref doesn't),
+            // the 'if (!isMounted)' check inside runSequence will handle the destroy safely.
+            if (engineRef.current) {
+                engineRef.current.destroy();
+                engineRef.current = null;
             }
         };
-    }, []); // Run once on mount
+    }, []); // Empty dependency array: Run once
 
     // 2. React to State Changes
     useEffect(() => {
@@ -93,6 +112,7 @@ export const GameCanvas = forwardRef<HTMLDivElement, GameCanvasProps>(({
         // Update Region Data
         if (activeRegion) {
             engine.humanDifficultyMultiplier = activeRegion.difficultyMultiplier;
+            // Only update activeRegionId if it changed to avoid reloading logic inside engine
             if (engine.activeRegionId !== activeRegion.id) {
                 engine.activeRegionId = activeRegion.id;
             }
@@ -102,7 +122,7 @@ export const GameCanvas = forwardRef<HTMLDivElement, GameCanvasProps>(({
         const targetMode = mode ? mode : (activeRegion ? 'COMBAT_VIEW' : 'HIVE');
         engine.setMode(targetMode);
 
-    }, [activeRegion, mode]);
+    }, [activeRegion, mode]); // Run whenever props change
 
     return <div ref={containerRef} className="absolute inset-0 w-full h-full z-0" />;
 });
