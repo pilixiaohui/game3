@@ -1,5 +1,5 @@
 
-import { Application, Container, Graphics, TilingSprite, Text, TextStyle, Texture, Sprite, RenderTexture } from 'pixi.js';
+import { Application, Container, Graphics, TilingSprite, Text, TextStyle, Texture, Sprite, RenderTexture, ParticleContainer } from 'pixi.js';
 import { IUnit, ObstacleDef, UnitType, Faction, IFxEvent, HarvestNodeDef } from '../../types';
 import { LANE_Y, UNIT_CONFIGS, ELEMENT_COLORS } from '../../constants';
 import { SimpleEventEmitter } from '../DataManager';
@@ -12,10 +12,7 @@ export class WorldRenderer {
     
     private bgLayer!: TilingSprite;
     private groundLayer!: TilingSprite;
-    public unitLayer!: Container; 
-    private unitLayerBack!: Container;
-    private unitLayerMid!: Container;
-    private unitLayerFront!: Container;
+    public unitLayer!: ParticleContainer; // Optimized
     public terrainLayer!: Container;
     public particleLayer!: Container;
     public hiveLayer!: Container;
@@ -46,7 +43,7 @@ export class WorldRenderer {
         await AssetManager.instance.loadResources();
         if (this.isDestroyed) return;
 
-        // 1. Create App (Sync in v7)
+        // 1. Create App (PixiJS v7 Compatibility)
         this.app = new Application({ 
             resizeTo: this.element, 
             backgroundColor: 0x0a0a0a, 
@@ -60,10 +57,11 @@ export class WorldRenderer {
             return;
         }
 
-        // Initialize TextureFactory
+        // Initialize TextureFactory & Bake Atlas
         TextureFactory.init(this.app.renderer);
+        TextureFactory.generateAtlas();
 
-        // 2. Append Canvas (app.view in v7)
+        // 2. Append Canvas
         this.element.appendChild(this.app.view as unknown as HTMLElement);
 
         this.sharedStampSprite = new Sprite(Texture.EMPTY);
@@ -74,8 +72,13 @@ export class WorldRenderer {
         bgGfx.drawRect(0, 0, 512, 512);
         bgGfx.endFill();
         
+        // v7 generateTexture
         const bgTex = this.app.renderer.generateTexture(bgGfx);
-        this.bgLayer = new TilingSprite(bgTex, this.app.screen.width, this.app.screen.height);
+        this.bgLayer = new TilingSprite(
+            bgTex,
+            this.app.screen.width, 
+            this.app.screen.height
+        );
         this.app.stage.addChild(this.bgLayer);
 
         const floorGfx = new Graphics();
@@ -85,7 +88,11 @@ export class WorldRenderer {
         floorGfx.endFill();
 
         const floorTex = this.app.renderer.generateTexture(floorGfx);
-        this.groundLayer = new TilingSprite(floorTex, this.app.screen.width, this.app.screen.height / 2 + 200);
+        this.groundLayer = new TilingSprite(
+            floorTex, 
+            this.app.screen.width, 
+            this.app.screen.height / 2 + 200
+        );
         this.groundLayer.anchor.set(0, 0);
         this.app.stage.addChild(this.groundLayer);
 
@@ -108,13 +115,18 @@ export class WorldRenderer {
         this.hiveLayer = new Container(); this.hiveLayer.zIndex = 6;
         this.world.addChild(this.hiveLayer);
         
-        this.unitLayer = new Container(); this.unitLayer.zIndex = 10;
-        this.world.addChild(this.unitLayer);
+        // --- OPERATION TEXTURE BAKE: High Performance Unit Layer ---
+        // PixiJS v7: Use ParticleContainer for performance
+        this.unitLayer = new ParticleContainer(2500, {
+            position: true,
+            rotation: true,
+            tint: true,
+            vertices: true, // For scale
+            uvs: true       // For texture frame changes
+        });
         
-        this.unitLayerBack = new Container();
-        this.unitLayerMid = new Container(); // This holds the main unit sprites
-        this.unitLayerFront = new Container();
-        this.unitLayer.addChild(this.unitLayerBack, this.unitLayerMid, this.unitLayerFront);
+        this.unitLayer.zIndex = 10;
+        this.world.addChild(this.unitLayer);
         
         this.particleLayer = new Container(); this.particleLayer.zIndex = 20;
         this.world.addChild(this.particleLayer);
@@ -132,21 +144,15 @@ export class WorldRenderer {
     }
     
     public initUnitView(unit: IUnit) {
-        // Create Sprite with placeholder, texture assigned later via assignTexture
         const sprite = new Sprite(Texture.EMPTY);
-        // Anchor is handled by TextureFactory baked textures, but we default here
-        sprite.anchor.set(0.5, 1.0); 
         unit.view = sprite;
-        this.unitLayerMid.addChild(sprite);
+        this.unitLayer.addChild(sprite); 
     }
 
     public assignTexture(unit: IUnit) {
         if (!unit.view) return;
-        
-        // Priority: Asset Manager -> TextureFactory -> Empty
         const assetTex = AssetManager.instance.getTexture(unit.type);
         const texture = assetTex || TextureFactory.getTexture(unit.type);
-        
         if (texture) (unit.view as Sprite).texture = texture;
     }
 
@@ -157,13 +163,21 @@ export class WorldRenderer {
         if (!tex) return;
         const s = this.sharedStampSprite;
         s.texture = tex;
-        s.anchor.set(tex.defaultAnchor.x, tex.defaultAnchor.y); // Use texture's anchor
+        const anchorX = (tex as any).defaultAnchor?.x ?? 0.5;
+        const anchorY = (tex as any).defaultAnchor?.y ?? 0.5;
+        s.anchor.set(anchorX, anchorY); 
         s.position.set(data.x, data.y - LANE_Y);
         s.rotation = data.rotation;
         s.scale.set(data.scaleX, 1.0);
         s.tint = 0x333333; s.alpha = 0.7;
-        this.app.renderer.render({ container: s, target: this.decalRenderTexture, clear: false });
+        
+        // v7 render signature
+        this.app.renderer.render(s, {
+            renderTexture: this.decalRenderTexture,
+            clear: false
+        });
     }
+    
     private handleFxEvent(e: IFxEvent) {
         if (e.type === 'EXPLOSION') {
             this.createParticles(e.x, e.y, e.color, 10);
@@ -183,7 +197,7 @@ export class WorldRenderer {
             g.position.set(e.x, e.y);
             this.addParticle({ view: g, type: 'GRAPHICS', life: 0.1, maxLife: 0.1, update: (p:any, dt:number) => { p.life -= dt; p.view.alpha = p.life/p.maxLife; return p.life > 0; } });
         } else if (e.type === 'TEXT') {
-            const t = new Text(e.text, new TextStyle({ fontSize: e.fontSize || 12, fill: e.color, fontWeight: 'bold' })); 
+            const t = new Text(e.text, { fontSize: e.fontSize || 12, fill: e.color, fontWeight: 'bold' }); 
             t.anchor.set(0.5); t.position.set(e.x, e.y);
             this.addParticle({ view: t, type: 'TEXT', life: 0.8, maxLife: 0.8, update: (p:any, dt:number) => { p.life -= dt; p.view.y -= 20 * dt; p.view.alpha = p.life/p.maxLife; return p.life > 0; } });
         } else if (e.type === 'SLASH') {
@@ -237,10 +251,9 @@ export class WorldRenderer {
         if (!unit.view) return;
         const view = unit.view as Sprite;
         if (unit.isDead || !unit.active) { view.visible = false; return; }
+        
         view.visible = true;
-        let target = this.unitLayerMid;
-        if (unit.y < -30) target = this.unitLayerBack; else if (unit.y > 30) target = this.unitLayerFront;
-        if (view.parent !== target) target.addChild(view);
+        
         view.alpha = unit.context.isBurrowed ? 0.5 : 1.0;
         view.position.set(unit.x, unit.y);
         let scaleX = 1.0;
@@ -282,12 +295,7 @@ export class WorldRenderer {
         const now = Date.now();
 
         for (const unit of activeUnits) {
-            // Optimization: Only render if recently hit (2s) or damaged heavily
-            // Or hovered (future).
             if (!unit.active || unit.isDead || unit.stats.hp >= unit.stats.maxHp) continue;
-            
-            // Only draw if damaged AND hit recently (within 2s)
-            // This massively reduces draw calls for units just sitting around or healing
             if (now - unit.lastHitTime > 2000) continue;
 
             const pct = Math.max(0, unit.stats.hp / unit.stats.maxHp);
@@ -418,7 +426,7 @@ export class WorldRenderer {
                 this.app.destroy(true, { 
                     children: true, 
                     texture: true,
-                    textureSource: true 
+                    baseTexture: true
                 });
             } catch (e) {
                 // suppress
@@ -426,11 +434,8 @@ export class WorldRenderer {
             this.app = null;
         }
 
-        // Assets.unloadBundle('units').catch(() => {});
-
         this.obstacleGraphics = [];
         this.harvestNodeGraphics = [];
-        // this.unitTextures.clear(); // Handled by TextureFactory cache now
         this.activeParticles = [];
     }
 }
