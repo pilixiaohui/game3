@@ -144,7 +144,17 @@ export class WorldRenderer {
     }
     
     public initUnitView(unit: IUnit) {
-        const sprite = new Sprite(Texture.EMPTY);
+        // [Fix] ParticleContainer requires all sprites to share the same BaseTexture.
+        // We use a texture from the atlas (UnitType.MELEE) as the placeholder to ensure the correct BaseTexture is set.
+        // Using Texture.EMPTY would set a different BaseTexture, causing invisible units when switched to Atlas.
+        const placeholderTex = TextureFactory.getTexture(UnitType.MELEE) || Texture.EMPTY;
+        
+        const sprite = new Sprite(placeholderTex);
+        
+        // Initially hide until the unit is properly spawned and activated
+        sprite.visible = false; 
+        sprite.alpha = 0;
+
         unit.view = sprite;
         this.unitLayer.addChild(sprite); 
     }
@@ -283,6 +293,7 @@ export class WorldRenderer {
              const t = Math.sin(Date.now() / 50); 
              view.tint = t > 0 ? 0xff0000 : 0xffffff;
         } else {
+             view.tint = 0xff0000; // Reset tint if needed, wait, 0xffffff is normal
              view.tint = 0xffffff;
         }
         view.scale.set(scaleX, scaleY);
@@ -423,10 +434,13 @@ export class WorldRenderer {
 
         if (this.app) {
             try {
+                // [Fix] Do NOT destroy textures/baseTextures. 
+                // TextureFactory manages the Atlas texture lifecycle globally.
+                // Destroying them here corrupts the TextureFactory cache for other active renderers.
                 this.app.destroy(true, { 
                     children: true, 
-                    texture: true,
-                    baseTexture: true
+                    texture: false, 
+                    baseTexture: false 
                 });
             } catch (e) {
                 // suppress
