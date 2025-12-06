@@ -1,30 +1,35 @@
 
+
 import { DataManager, SimpleEventEmitter } from '../DataManager';
 import { UnitPool } from '../Unit';
-import { ObstacleDef, RegionData, Faction, UnitType } from '../../types';
+import { ObstacleDef, Faction, UnitType } from '../../types';
 import { TERRAIN_CHUNKS } from '../../config/terrain';
-import { STAGE_WIDTH, LANE_Y } from '../../constants';
+import { STAGE_WIDTH } from '../../constants';
 import { FlowField } from '../FlowField';
 
-type GameState = 'MARCH' | 'SIEGE';
+// 只有两种状态：
+// LOCKED: 存在必须消灭的敌人或建筑，摄像机锁定，流场指向目标。
+// UNLOCKED: 目标已清除，摄像机自动向右平移，流场指向右侧，直到遇到下一关触发线。
+type LevelState = 'LOCKED' | 'UNLOCKED';
 
 export class LevelManager {
     public activeRegionId: number = 0;
-    public loadedRegionId: number = -1; // Track currently loaded region
     public currentStageIndex: number = 0;
-    public cameraX: number = 0;
-    public activeObstacles: ObstacleDef[] = [];
-    public currentState: GameState = 'MARCH';
     
+    // 摄像机目标位置
+    public cameraX: number = 0;
+    private targetCameraX: number = 0;
+    
+    public activeObstacles: ObstacleDef[] = [];
+    public currentState: LevelState = 'UNLOCKED';
+    
+    // 阻碍推进的关键目标集合（通常是墙，也可以扩展为特定单位）
+    private blockers: Set<ObstacleDef> = new Set();
+
     private unitPool: UnitPool;
     private events: SimpleEventEmitter;
     private lastGeneratedStage: number = -1;
     public flowField: FlowField;
-
-    // Siege Logic
-    private currentSiegeTargetX: number = 0;
-    private activeSiegeObstacleIds: Set<ObstacleDef> = new Set();
-    private flowFieldDirty: boolean = false;
 
     constructor(unitPool: UnitPool, events: SimpleEventEmitter) {
         this.unitPool = unitPool;
@@ -33,151 +38,123 @@ export class LevelManager {
     }
 
     public loadRegion(regionId: number) {
-        // Persistence Check: If we are just switching back to view the battle, don't reset everything.
-        if (this.loadedRegionId === regionId) {
-             // Just ensure activeRegionId is synced, but don't regenerate
-             this.activeRegionId = regionId;
-             return;
-        }
-
         this.activeRegionId = regionId;
-        this.loadedRegionId = regionId;
-        this.currentState = 'MARCH';
-        
         const saved = DataManager.instance.state.world.regions[regionId];
         this.currentStageIndex = Math.floor(saved ? saved.devourProgress : 0);
-        this.cameraX = this.currentStageIndex * STAGE_WIDTH;
         
-        // Cleanup old enemies before generating new ones
-        const activeUnits = this.unitPool.getActiveUnits();
-        activeUnits.forEach(u => {
-            if (u.faction === Faction.HUMAN) this.unitPool.recycle(u);
-        });
-
-        // Reset Terrain State for the new region
+        // 重置位置
+        this.cameraX = this.currentStageIndex * STAGE_WIDTH;
+        this.targetCameraX = this.cameraX;
+        
+        // 清理旧状态
         this.activeObstacles = [];
-        this.activeSiegeObstacleIds.clear();
+        this.blockers.clear();
         this.lastGeneratedStage = -1;
+        this.currentState = 'UNLOCKED';
 
-        // Pre-generate current and next stage to ensure visibility
+        // 初始生成
         this.generateChunk(this.currentStageIndex);
         this.generateChunk(this.currentStageIndex + 1);
         
+        // 强制更新一次流场
         this.updateFlowField();
     }
 
     public update(dt: number, activeUnits: any[]) {
-        let targetX = this.cameraX;
-
-        // --- STATE MACHINE: MARCH vs SIEGE ---
-
-        if (this.currentState === 'SIEGE') {
-             // Check victory condition: Are all active siege obstacles destroyed?
-             if (this.activeSiegeObstacleIds.size === 0) {
-                 this.currentState = 'MARCH';
-                 this.events.emit('FX', { type: 'TEXT', x: this.cameraX + 400, y: 0, text: "BREACH!", color: 0x00ff00, fontSize: 30 });
-                 // Update flow field immediately to switch back to rightward flow
-                 this.updateFlowField();
-             } else {
-                 // Lock camera to siege target
-                 targetX = this.currentSiegeTargetX;
-                 
-                 // Verify obstacles are still alive (double check)
-                 this.activeSiegeObstacleIds.forEach(obs => {
-                     if (!this.activeObstacles.includes(obs)) {
-                         this.activeSiegeObstacleIds.delete(obs);
-                     }
-                 });
-             }
+        // --- 1. 状态检测与转换 ---
+        
+        if (this.currentState === 'LOCKED') {
+            // 检查阻挡者是否被全部消灭
+            // (注意：这里需要在 damageObstacle 中维护 blockers 集合)
+            if (this.blockers.size === 0) {
+                this.unlockStage();
+            }
         } 
         
-        if (this.currentState === 'MARCH') {
-            // Camera Follow Logic (Lead Zerg)
-            let leadZergX = -99999;
-            let zergCount = 0;
+        if (this.currentState === 'UNLOCKED') {
+            // 自动推进摄像机
+            // 速度可以根据游戏节奏调整，或者根据虫群领头位置动态调整
+            const advanceSpeed = 200; 
+            this.targetCameraX += advanceSpeed * dt;
             
-            for (const u of activeUnits) {
-                if (u.faction === Faction.ZERG && !u.isDead) {
-                    if (u.x > leadZergX) leadZergX = u.x;
-                    zergCount++;
-                }
+            // 检查是否到达了下一个“关卡触发线”
+            // 假设每个 Stage 的中心或末尾是战斗点
+            const nextStageX = (this.currentStageIndex + 1) * STAGE_WIDTH;
+            
+            // 如果摄像机推到了下一关的范围，尝试生成并锁定
+            if (this.targetCameraX >= nextStageX - 200) { // 提前一点锁定
+                this.currentStageIndex++;
+                this.generateChunk(this.currentStageIndex + 1); // 预生成再下一关
+                this.tryLockStage(this.currentStageIndex);
             }
-            
-            if (zergCount > 0) targetX = leadZergX + 300;
-
-            // Fallback: drift forward slowly if no zergs, to show enemies
-            if (zergCount === 0) targetX += 50 * dt;
-
-            // Prevent back-tracking
-            if (targetX < this.cameraX) targetX = this.cameraX;
         }
 
-        // Apply Camera Smoothing
-        this.cameraX += (targetX - this.cameraX) * 0.08;
+        // --- 2. 摄像机平滑移动 ---
+        // 简单的线性插值
+        this.cameraX += (this.targetCameraX - this.cameraX) * 0.1;
 
-        // --- ENDLESS GENERATION LOGIC ---
-        const lookAheadStage = Math.floor((this.cameraX + STAGE_WIDTH) / STAGE_WIDTH);
+        // --- 3. 流场更新 (频率优化：可以每几帧更新一次) ---
+        this.updateFlowField();
         
-        if (lookAheadStage > this.lastGeneratedStage) {
-            this.generateChunk(this.lastGeneratedStage + 1);
-            this.updateFlowField();
-            this.cullOldObstacles();
-        }
+        // --- 4. 清理视野外物体 ---
+        this.cullOldObstacles();
+    }
 
-        if (this.flowFieldDirty) {
-            this.updateFlowField();
-            this.flowFieldDirty = false;
+    private tryLockStage(stageIndex: number) {
+        // 检查当前 Stage 区域内是否有阻挡物（墙）
+        const stageStartX = stageIndex * STAGE_WIDTH;
+        const stageEndX = stageStartX + STAGE_WIDTH;
+        
+        const newBlockers = this.activeObstacles.filter(obs => {
+            // 在当前关卡范围内 & 是墙 & 活着
+            return obs.x >= stageStartX && obs.x < stageEndX && obs.type === 'WALL' && (obs.health || 0) > 0;
+        });
+
+        if (newBlockers.length > 0) {
+            // 发现阻挡物，锁定战斗！
+            newBlockers.forEach(b => this.blockers.add(b));
+            this.currentState = 'LOCKED';
+            this.events.emit('FX', { type: 'TEXT', x: this.cameraX + 600, y: 0, text: "SIEGE START", color: 0xff0000, fontSize: 30 });
+            
+            // 锁定摄像机目标，使其不再自动前移，专注于当前战场
+            // 这里可以设为阻挡物的中心位置
+            this.targetCameraX = stageStartX; 
+        } else {
+            // 如果这一关没有墙（比如纯兵线），就不锁定，直接冲过去
+            // 或者你可以选择检测“敌方单位数量”来锁定
+            // 目前只实现基于墙的攻坚逻辑
         }
     }
 
-    private cullOldObstacles() {
-        // Remove obstacles 2 stages behind
-        const thresholdX = this.cameraX - (STAGE_WIDTH * 2);
-        const originalCount = this.activeObstacles.length;
-        this.activeObstacles = this.activeObstacles.filter(o => o.x > thresholdX);
+    private unlockStage() {
+        this.currentState = 'UNLOCKED';
+        this.events.emit('FX', { type: 'TEXT', x: this.cameraX + 600, y: 0, text: "BREACHED!", color: 0x00ff00, fontSize: 30 });
         
-        if (this.activeObstacles.length !== originalCount) {
-             this.events.emit('TERRAIN_UPDATE', this.activeObstacles);
-        }
+        // 记录进度
+        DataManager.instance.updateRegionProgress(this.activeRegionId, 1);
     }
 
     public generateChunk(stageIndex: number) {
         if (stageIndex <= this.lastGeneratedStage && this.lastGeneratedStage !== -1) return;
-        
         this.lastGeneratedStage = stageIndex;
 
         const templates = TERRAIN_CHUNKS['DEFAULT'] || [];
         const template = templates[stageIndex % templates.length];
         const stageOffsetX = stageIndex * STAGE_WIDTH;
         
-        // Create new obstacles with offset
         const newObstacles = template.obstacles.map(def => ({ 
             ...def, 
             x: def.x + stageOffsetX, 
             maxHealth: def.health, 
-            health: def.health, 
+            health: def.health,
             chunkId: `${stageIndex}_${template.id}`
         }));
         
-        // Append to active obstacles (Endless)
         this.activeObstacles.push(...newObstacles);
-        
-        // SIEGE TRIGGER LOGIC
-        if (template.isStronghold && this.currentState !== 'SIEGE') {
-             // Look for major walls to be the "Lock Target"
-             const walls = newObstacles.filter(o => o.type === 'WALL' && (o.health || 0) > 2000);
-             if (walls.length > 0) {
-                 // Determine lock position (average x of walls - offset)
-                 const avgX = walls.reduce((sum, w) => sum + w.x, 0) / walls.length;
-             }
-        }
-
-        // Notify renderer via event
         this.events.emit('TERRAIN_UPDATE', this.activeObstacles);
         
-        // Spawn Enemies
+        // 生成敌人
         const difficultyLevel = (this.activeRegionId * 5) + stageIndex;
-
         template.spawnPoints.forEach(sp => {
             this.unitPool.spawn(
                 Faction.HUMAN, 
@@ -187,66 +164,46 @@ export class LevelManager {
                 difficultyLevel
             );
         });
-
-        // Trigger Siege State Check immediately if relevant
-        if (template.isStronghold) {
-            // Find key obstacles to lock onto
-            const fortressObstacles = newObstacles.filter(o => o.type === 'WALL' || o.type === 'WATER');
-            if (fortressObstacles.length > 0) {
-                 const targetX = (stageOffsetX + template.width / 2) - 400; // Center screen on stronghold
-                 this.currentSiegeTargetX = targetX;
-                 
-                 // Register obstacles that must be destroyed
-                 fortressObstacles.forEach(o => {
-                     if (o.type === 'WALL') this.activeSiegeObstacleIds.add(o);
-                 });
-
-                 // If we have valid targets, engage siege mode logic in next update frames
-                 if (this.activeSiegeObstacleIds.size > 0) {
-                      this.currentState = 'SIEGE';
-                      this.events.emit('FX', { type: 'TEXT', x: this.cameraX + 400, y: 0, text: "SIEGE DETECTED", color: 0xff0000, fontSize: 24 });
-                      // Update flow field immediately to point to walls
-                      this.updateFlowField();
-                 }
-            }
-        }
     }
 
     public damageObstacle(obs: ObstacleDef, dmg: number): boolean {
         if (!obs.health) return false;
         obs.health -= dmg;
         if (obs.health <= 0) {
+            // 移除障碍物
             this.activeObstacles = this.activeObstacles.filter(o => o !== obs);
             
-            if (this.activeSiegeObstacleIds.has(obs)) {
-                this.activeSiegeObstacleIds.delete(obs);
-
-                // Force update flow field immediately when a siege target breaks
-                // This ensures the gap is recognized as a valid path in the current frame or immediate next logic
-                this.updateFlowField();
-
-                if (this.activeSiegeObstacleIds.size === 0 && this.currentState === 'SIEGE') {
-                    this.currentState = 'MARCH';
-                    this.events.emit('FX', { type: 'TEXT', x: this.cameraX + 400, y: 0, text: "BREACH!", color: 0x00ff00, fontSize: 30 });
-                }
-            } else {
-                // If just a rock or non-siege obstacle, lazy update
-                this.flowFieldDirty = true;
+            // 从阻挡列表中移除
+            if (this.blockers.has(obs)) {
+                this.blockers.delete(obs);
             }
             
             this.events.emit('TERRAIN_UPDATE', this.activeObstacles);
+            // 此时不用手动调用 unlock，下一帧 update 会检测 blockers.size === 0 自动解锁
             return true;
         }
         return false;
     }
 
+    private cullOldObstacles() {
+        const thresholdX = this.cameraX - STAGE_WIDTH;
+        const count = this.activeObstacles.length;
+        this.activeObstacles = this.activeObstacles.filter(o => o.x > thresholdX);
+        if (this.activeObstacles.length !== count) {
+             this.events.emit('TERRAIN_UPDATE', this.activeObstacles);
+        }
+    }
+
     private updateFlowField() {
-        // Optimize: Only update for visible range + buffer
-        const startX = Math.max(0, this.cameraX - 500);
-        const endX = this.cameraX + 2000;
+        // 只计算当前屏幕附近的流场
+        const startX = Math.max(0, this.cameraX - 200);
+        const endX = this.cameraX + STAGE_WIDTH + 200;
         
-        const siegeTargets = Array.from(this.activeSiegeObstacleIds);
-        this.flowField.update(this.activeObstacles, siegeTargets, this.currentState === 'SIEGE', startX, endX);
+        // 如果处于锁定状态，Blockers 就是流场的目标（吸引子）
+        // 如果处于解锁状态，没有目标，流场自然向右
+        const targets = Array.from(this.blockers);
+        
+        this.flowField.update(this.activeObstacles, targets, startX, endX);
     }
     
     public getFlowVector(x: number, y: number) {

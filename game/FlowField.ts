@@ -1,12 +1,13 @@
 
+
 import { ObstacleDef } from '../types';
-import { LANE_Y } from '../../constants';
+import { LANE_Y, MAP_PLAYABLE_HEIGHT } from '../../constants';
 
 export class FlowField {
     private cellSize: number = 40;
     private cols: number = 0;
     private rows: number = 0;
-    private field: Float32Array; // x, y interleaved
+    private field: Float32Array; 
     private offset: { x: number, y: number } = { x: 0, y: 0 };
     private width: number = 0;
 
@@ -14,37 +15,46 @@ export class FlowField {
         this.field = new Float32Array(0);
     }
 
-    public update(obstacles: ObstacleDef[], siegeTargets: ObstacleDef[], isSiege: boolean, startX: number, endX: number) {
+    /**
+     * 统一更新逻辑：
+     * @param obstacles 所有障碍物（用于避障）
+     * @param targets 当前阶段必须摧毁的目标（作为流场的“终点/吸引子”）
+     * @param startX 计算区域起点
+     * @param endX 计算区域终点
+     */
+    public update(obstacles: ObstacleDef[], targets: ObstacleDef[], startX: number, endX: number) {
+        // 动态计算覆盖范围，确保覆盖 expanded height
         this.offset.x = Math.floor(startX / this.cellSize) * this.cellSize;
-        this.offset.y = -200; // Fixed vertical range covering lanes
-        this.width = endX - startX + 400; // Buffer
-        const height = 500; // -200 to +300
+        // Y轴范围覆盖整个可玩区域 + 缓冲区
+        const totalHeight = MAP_PLAYABLE_HEIGHT * 2 + 200; 
+        this.offset.y = -MAP_PLAYABLE_HEIGHT - 100; 
+
+        this.width = endX - startX + 400;
 
         this.cols = Math.ceil(this.width / this.cellSize);
-        this.rows = Math.ceil(height / this.cellSize);
+        this.rows = Math.ceil(totalHeight / this.cellSize);
         
         const size = this.cols * this.rows * 2;
         if (this.field.length < size) {
             this.field = new Float32Array(size);
         }
         
+        // 0 = 空地/目标, 1 = 阻挡
         const gridObstacles = new Uint8Array(this.cols * this.rows);
         const distanceField = new Float32Array(this.cols * this.rows).fill(9999);
         const queue: number[] = [];
 
-        // 1. Mark Obstacles
+        // 1. 标记障碍物 (Mark Obstacles)
+        // 注意：目标(Targets)虽然是障碍物，但对流场来说它是“目的地”，不能标记为阻挡(1)
         for (const obs of obstacles) {
-             // CRITICAL: In Siege mode, the target walls should NOT be obstacles (1).
-             // They should be treated as empty or goals so units flow TOWARDS them.
-             if (isSiege && siegeTargets.includes(obs)) continue;
+             if (targets.includes(obs)) continue; // 目标不是阻挡，是吸引点
 
              const ox = obs.x - this.offset.x;
              const oy = (LANE_Y + obs.y) - this.offset.y;
              
-             // Convert obstacle bounds to grid coords
              const minCx = Math.floor((ox - obs.width/2) / this.cellSize);
              const maxCx = Math.floor((ox + obs.width/2) / this.cellSize);
-             const minCy = Math.floor((oy - obs.height) / this.cellSize); // Obstacle y is bottom
+             const minCy = Math.floor((oy - obs.height) / this.cellSize); 
              const maxCy = Math.floor(oy / this.cellSize);
 
              for (let cy = minCy; cy <= maxCy; cy++) {
@@ -56,14 +66,14 @@ export class FlowField {
              }
         }
 
-        // 2. Seed Goals
-        // PRIORITY A: Siege Targets (Distance = 0)
-        if (isSiege && siegeTargets.length > 0) {
-            // SIEGE MODE: Goal is the wall itself (or cells inside/touching it)
-            for (const target of siegeTargets) {
+        // 2. 播种目标 (Seed Goals)
+        // 逻辑：如果存在目标，流场指向目标。如果目标全灭，流场指向右边界。
+        if (targets.length > 0) {
+            for (const target of targets) {
                  const ox = target.x - this.offset.x;
                  const oy = (LANE_Y + target.y) - this.offset.y;
                  
+                 // 将目标占据的格子设为距离 0
                  const minCx = Math.floor((ox - target.width/2) / this.cellSize);
                  const maxCx = Math.floor((ox + target.width/2) / this.cellSize);
                  const minCy = Math.floor((oy - target.height) / this.cellSize);
@@ -73,37 +83,26 @@ export class FlowField {
                      for (let cx = minCx; cx <= maxCx; cx++) {
                          if (cx >= 0 && cx < this.cols && cy >= 0 && cy < this.rows) {
                              const idx = cy * this.cols + cx;
-                             // Force overwrite even if marked as obstacle (though we skipped marking above)
-                             gridObstacles[idx] = 0; 
-                             distanceField[idx] = 0;
+                             gridObstacles[idx] = 0; // 确保可通行
+                             distanceField[idx] = 0; // 距离为0
                              queue.push(idx);
                          }
                      }
                  }
             }
-        } 
-        
-        // PRIORITY B: Right Edge (Always fallback goal)
-        // This ensures that if a wall is breached, the natural flow is forward to the right.
-        for (let y = 0; y < this.rows; y++) {
-            const idx = y * this.cols + (this.cols - 1);
-            if (gridObstacles[idx] === 0) {
-                // If Siege Mode, add a small base cost (e.g., 10 steps) to the map exit.
-                // This ensures units prioritize attacking nearby walls (Cost 0) over walking past them,
-                // but if the wall path is blocked or broken, they will eventually choose the exit.
-                const baseCost = isSiege ? 10 : 0;
-
-                // Only mark if not already marked by a siege target (though overlap is fine with 0)
-                if (distanceField[idx] > baseCost) {
-                    distanceField[idx] = baseCost;
+        } else {
+            // 没有目标（清场状态）：目标是向右推进
+            for (let y = 0; y < this.rows; y++) {
+                const idx = y * this.cols + (this.cols - 1);
+                if (gridObstacles[idx] === 0) {
+                    distanceField[idx] = 0;
                     queue.push(idx);
                 }
             }
         }
 
-        // 3. Flood Fill (Dijkstra)
+        // 3. 泛洪计算 (Dijkstra)
         let head = 0;
-        
         const updateNeighbor = (nIdx: number, dist: number) => {
             if (gridObstacles[nIdx] === 0 && distanceField[nIdx] > dist + 1) {
                 distanceField[nIdx] = dist + 1;
@@ -114,7 +113,6 @@ export class FlowField {
         while(head < queue.length) {
             const idx = queue[head++];
             const dist = distanceField[idx];
-            
             const cx = idx % this.cols;
             const cy = Math.floor(idx / this.cols);
             
@@ -124,45 +122,34 @@ export class FlowField {
             if (cy < this.rows - 1) updateNeighbor(idx + this.cols, dist);
         }
 
-        // 4. Generate Vectors
-        for (let y = 0; y < this.rows; y++) {
-            for (let x = 0; x < this.cols; x++) {
-                const idx = y * this.cols + x;
-                const fIdx = idx * 2;
+        // 4. 生成向量 (Generate Vectors)
+        for (let i = 0; i < this.cols * this.rows; i++) {
+            const fIdx = i * 2;
+            if (gridObstacles[i] === 1) {
+                this.field[fIdx] = 0; 
+                this.field[fIdx + 1] = 0;
+                continue;
+            }
 
-                if (gridObstacles[idx] === 1) {
-                    this.field[fIdx] = 0;
-                    this.field[fIdx + 1] = 0;
-                    continue;
-                }
-                
-                let minDist = distanceField[idx];
-                let vx = 0;
-                let vy = 0;
-                
-                // Left
-                if (x > 0 && distanceField[idx - 1] < minDist) { vx = -1; vy = 0; minDist = distanceField[idx-1]; }
-                // Right
-                if (x < this.cols - 1 && distanceField[idx + 1] < minDist) { vx = 1; vy = 0; minDist = distanceField[idx+1]; }
-                // Up
-                if (y > 0 && distanceField[idx - this.cols] < minDist) { vx = 0; vy = -1; minDist = distanceField[idx-this.cols]; }
-                // Down
-                if (y < this.rows - 1 && distanceField[idx + this.cols] < minDist) { vx = 0; vy = 1; minDist = distanceField[idx+this.cols]; }
+            const cx = i % this.cols;
+            const cy = Math.floor(i / this.cols);
+            let minDist = distanceField[i];
+            let vx = 0, vy = 0;
 
-                // Normalize if moving diagonally (simple check)
-                if (vx !== 0 && vy !== 0) {
-                    const len = Math.sqrt(vx*vx + vy*vy);
-                    vx /= len;
-                    vy /= len;
-                }
+            // 检查上下左右，寻找更小的 distance
+            if (cx > 0 && distanceField[i-1] < minDist) { vx = -1; vy = 0; minDist = distanceField[i-1]; }
+            if (cx < this.cols-1 && distanceField[i+1] < minDist) { vx = 1; vy = 0; minDist = distanceField[i+1]; }
+            if (cy > 0 && distanceField[i-this.cols] < minDist) { vx = 0; vy = -1; minDist = distanceField[i-this.cols]; }
+            if (cy < this.rows-1 && distanceField[i+this.cols] < minDist) { vx = 0; vy = 1; minDist = distanceField[i+this.cols]; }
 
-                if (vx === 0 && vy === 0 && distanceField[idx] < 9999) {
-                     // Fallback for local minima or end: point right (default flow)
-                     if (!isSiege) vx = 1;
-                }
-
-                this.field[fIdx] = vx;
-                this.field[fIdx + 1] = vy;
+            if (vx !== 0 || vy !== 0) {
+                const len = Math.sqrt(vx*vx + vy*vy);
+                this.field[fIdx] = vx / len;
+                this.field[fIdx + 1] = vy / len;
+            } else if (targets.length === 0 && distanceField[i] < 9999) {
+                // 如果没有特定目标且没被卡住，默认向右流（防止死水区）
+                this.field[fIdx] = 1;
+                this.field[fIdx+1] = 0;
             }
         }
     }
@@ -175,6 +162,7 @@ export class FlowField {
             const idx = (cy * this.cols + cx) * 2;
             return { x: this.field[idx], y: this.field[idx+1] };
         }
-        return { x: 1, y: 0 }; // Default forward
+        // 超出范围，默认向右引导回正轨
+        return { x: 1, y: 0 }; 
     }
 }

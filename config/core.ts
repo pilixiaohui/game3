@@ -19,6 +19,9 @@ export const RESOURCE_TICK_RATE_BASE = 15;
 export const UNIT_UPGRADE_COST_BASE = 100;
 export const RECYCLE_REFUND_RATE = 0.8; 
 
+export const MAP_PLAYABLE_HEIGHT = 450; 
+export const VIEWPORT_WIDTH = 1200;
+
 export const CLICK_CONFIG = {
     BASE: 10.0,
     SCALING: 0.05

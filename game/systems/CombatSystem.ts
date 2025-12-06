@@ -1,11 +1,12 @@
 
+
 import { IGameEngine, IUnit, Faction, StatusType, ObstacleDef } from '../../types';
 import { UnitPool, Unit } from '../Unit';
 import { SpatialHash } from '../SpatialHash';
 import { LevelManager } from '../managers/LevelManager';
 import { DataManager } from '../DataManager';
 import { GeneLibrary, ReactionRegistry, StatusRegistry } from '../GeneSystem';
-import { LANE_Y, DECAY_TIME, STATUS_CONFIG, ELEMENT_COLORS } from '../../constants';
+import { LANE_Y, DECAY_TIME, STATUS_CONFIG, ELEMENT_COLORS, MAP_PLAYABLE_HEIGHT } from '../../constants';
 
 export class CombatSystem {
     private engine: IGameEngine;
@@ -145,8 +146,8 @@ export class CombatSystem {
         }
 
         // Clamp Y Map Bounds
-        if (nextY < -200) nextY = -200;
-        if (nextY > 200) nextY = 200;
+        if (nextY < -MAP_PLAYABLE_HEIGHT) nextY = -MAP_PLAYABLE_HEIGHT;
+        if (nextY > MAP_PLAYABLE_HEIGHT) nextY = MAP_PLAYABLE_HEIGHT;
         
         u.x = nextX;
         u.y = nextY;
