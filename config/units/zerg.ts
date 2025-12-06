@@ -158,13 +158,13 @@ export const ZERG_UNIT_CONFIGS: Partial<Record<UnitType, UnitConfig>> = {
   },
   [UnitType.QUEEN]: {
     id: UnitType.QUEEN,
-    name: '感染者 (Infestor)',
+    name: '虫后 (Queen)', // Renamed from '感染者 (Infestor)' to avoid confusion
     baseStats: { hp: 250, damage: 10, range: 100, speed: 40, attackSpeed: 1.0, width: 32, height: 48, color: 0xd946ef, armor: 20 },
-    baseCost: { biomass: 150, larva: 1, dna: 0, time: 10.0 }, 
+    baseCost: { biomass: 0, larva: 0, dna: 0, time: 0.2 }, //开发测试专用设置
     growthFactors: { hp: 0.1, damage: 0.1 },
     baseLoadCapacity: 50,
     slots: [{ polarity: 'UNIVERSAL' }, { polarity: 'FUNCTION' }, { polarity: 'DEFENSE' }],
-    tags: ['NON_COMBAT'],
+    tags: ['NON_COMBAT'], // Explicit tag for utility sorting
     visual: { shapes: [{ type: 'ROUNDED_RECT', cornerRadius: 10, widthPct: 1, heightPct: 1 }, { type: 'CIRCLE', radiusPct: 0.66, yOffPct: -1.0 }] },
     genes: [
         { id: 'GENE_ACQUIRE_TARGET' },

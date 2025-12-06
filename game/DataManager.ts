@@ -72,17 +72,68 @@ export class DataManager {
             const json = localStorage.getItem('HIVE_SAVE_DATA');
             if (json) {
                 const loaded = JSON.parse(json);
-                this.state = { ...INITIAL_GAME_STATE, ...loaded };
-                if (!this.state.hive.metabolism.crackerHeat) {
-                    this.state.hive.metabolism = JSON.parse(JSON.stringify(INITIAL_GAME_STATE.hive.metabolism));
-                }
-                if (!this.state.hive.production.queenIntervalLevel) {
-                    this.state.hive.production.queenIntervalLevel = 1;
-                    this.state.hive.production.queenAmountLevel = 1;
-                    this.state.hive.production.larvaCapBase = INITIAL_LARVA_CAP;
-                    this.state.resources.larva = INITIAL_LARVA_CAP;
-                }
-                // Init new Prestige fields
+                
+                // Deep merge strategy to ensure new game features (like Queen) exist in old saves
+                // We use ...INITIAL_GAME_STATE first to set defaults, then ...loaded to overwrite with save data.
+                // Crucially, for nested objects like 'hive', we must merge them field by field to avoid 
+                // missing keys if the save file structure is outdated (e.g. missing 'unlockedUnits.QUEEN').
+                this.state = { 
+                    ...INITIAL_GAME_STATE, 
+                    ...loaded,
+                    hive: {
+                        ...INITIAL_GAME_STATE.hive,
+                        ...(loaded.hive || {}),
+                        // Explicitly merge nested dictionaries to prevent missing keys
+                        unlockedUnits: {
+                            ...INITIAL_GAME_STATE.hive.unlockedUnits,
+                            ...(loaded.hive?.unlockedUnits || {})
+                        },
+                        unitStockpile: {
+                            ...INITIAL_GAME_STATE.hive.unitStockpile,
+                            ...(loaded.hive?.unitStockpile || {})
+                        },
+                        production: {
+                            ...INITIAL_GAME_STATE.hive.production,
+                            ...(loaded.hive?.production || {})
+                        },
+                        metabolism: {
+                            ...INITIAL_GAME_STATE.hive.metabolism,
+                            ...(loaded.hive?.metabolism || {})
+                        },
+                        inventory: {
+                            ...INITIAL_GAME_STATE.hive.inventory,
+                            ...(loaded.hive?.inventory || {})
+                        }
+                    },
+                    player: {
+                        ...INITIAL_GAME_STATE.player,
+                        ...(loaded.player || {})
+                    },
+                    world: {
+                        ...INITIAL_GAME_STATE.world,
+                        ...(loaded.world || {}),
+                        regions: {
+                            ...INITIAL_GAME_STATE.world.regions,
+                            ...(loaded.world?.regions || {})
+                        }
+                    }
+                };
+
+                // Data Integrity Check: Ensure every UnitType exists in state
+                // This fixes the issue where old saves without QUEEN cause the unit to be undefined
+                Object.values(UnitType).forEach(uType => {
+                    const u = uType as UnitType;
+                    if (!this.state.hive.unlockedUnits[u]) {
+                        this.state.hive.unlockedUnits[u] = JSON.parse(JSON.stringify(INITIAL_GAME_STATE.hive.unlockedUnits[u] || {id:u}));
+                        console.log(`[DataManager] Injected missing unit schema: ${u}`);
+                    }
+                    // Ensure isProducing flag exists
+                    if (this.state.hive.unlockedUnits[u].isProducing === undefined) {
+                         this.state.hive.unlockedUnits[u].isProducing = false;
+                    }
+                });
+                
+                // Initialize Prestige fields if missing
                 if (this.state.player.mutationUpgrades === undefined) {
                     this.state.player.mutationUpgrades = {
                         metabolicSurge: 0,
@@ -93,18 +144,11 @@ export class DataManager {
                 }
 
                 if (this.state.player.totalKills === undefined) this.state.player.totalKills = 0;
-                Object.values(UnitType).forEach(uType => {
-                    const u = uType as UnitType;
-                    if (!this.state.hive.unlockedUnits[u]) {
-                        this.state.hive.unlockedUnits[u] = JSON.parse(JSON.stringify(INITIAL_GAME_STATE.hive.unlockedUnits[u] || {id:u}));
-                    }
-                    if (this.state.hive.unlockedUnits[u].isProducing === undefined) {
-                         this.state.hive.unlockedUnits[u].isProducing = false;
-                    }
-                });
+                
                 this.calculateOfflineProgress();
             }
         } catch (e) {
+            console.error("Save file corrupted, resetting.", e);
             this.state = JSON.parse(JSON.stringify(INITIAL_GAME_STATE));
         }
     }
