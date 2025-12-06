@@ -53,9 +53,10 @@ export class DeploymentSystem {
         const selectedType = spawnableTypes[Math.floor(Math.random() * spawnableTypes.length)];
         
         if (DataManager.instance.consumeStockpile(selectedType)) {
-            // FIXED: Always spawn at start of current stage
+            // FIXED: Always spawn at start of current stage with a safe buffer
             const stageStartX = this.levelManager.currentStageIndex * STAGE_WIDTH;
-            const spawnX = stageStartX - 50 + (Math.random() * 50); 
+            const SPAWN_BUFFER = 300;
+            const spawnX = stageStartX - SPAWN_BUFFER + (Math.random() * 50); 
 
             this.events.emit('REQUEST_SPAWN', {
                 faction: Faction.ZERG,

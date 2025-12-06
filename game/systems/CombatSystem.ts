@@ -142,9 +142,10 @@ export class CombatSystem {
         const stageEndX = stageStartX + stageWidth;
 
         // Allow some buffer for spawning and off-screen maneuvering
-        // -150 is critical because Zerg loop resets to -50. If we clamped to 0, they would get stuck or jitter.
-        const HARD_BOUND_LEFT = stageStartX - 150; 
-        const HARD_BOUND_RIGHT = stageEndX + 150;
+        // -300 is critical because Zerg loop resets to -300. If we clamped to 0 or -150, they would get stuck.
+        const BOUNDARY_BUFFER = 400; 
+        const HARD_BOUND_LEFT = stageStartX - BOUNDARY_BUFFER; 
+        const HARD_BOUND_RIGHT = stageEndX + BOUNDARY_BUFFER;
 
         if (u.faction === Faction.HUMAN) {
             if (nextX < HARD_BOUND_LEFT) nextX = HARD_BOUND_LEFT;
@@ -163,10 +164,15 @@ export class CombatSystem {
         // --- ENDLESS FLOOD LOOP ---
         // If Zerg unit passes stage end during BATTLE, loop back to start
         if (u.faction === Faction.ZERG && this.levelManager.currentState === 'BATTLE') {
-            if (nextX > stageEndX + 50) { // Buffer to go off-screen
-                nextX = stageStartX - 50; // Teleport to left off-screen
+            const LOOP_BUFFER = 300;
+            if (nextX > stageEndX + LOOP_BUFFER) { // Buffer to go off-screen
+                nextX = stageStartX - LOOP_BUFFER; // Teleport to left off-screen
                 // Use 1.9x height factor (approx 95% of playable area) to match spawn logic distribution
                 nextY = (Math.random() - 0.5) * (MAP_PLAYABLE_HEIGHT * 1.9);
+                
+                // Reset state
+                u.target = null;
+                u.state = 'MOVE';
             }
         }
 
