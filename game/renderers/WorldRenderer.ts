@@ -333,37 +333,98 @@ export class WorldRenderer {
             }
         }
     }
+    
     public drawTerrain(obs: ObstacleDef[]) { 
         this.obstacleGraphics.forEach(g => { g.clear(); g.destroy(); });
         this.obstacleGraphics = [];
         obs.forEach(o => {
             const g = new Graphics();
+            
+            // --- 1. Draw Hitbox (Shadow/Base) - The logic area on the floor ---
+            // o.y is the bottom coordinate of the hitbox in lane space
+            // o.height is the depth of the hitbox in lane space
+            const hitboxBottom = LANE_Y + o.y;
+            const hitboxTop = LANE_Y + o.y - o.height;
+            
             if (o.type === 'WALL') {
-                g.beginFill(0x222222);
-                g.lineStyle(2, 0x555555);
-                g.drawRect(o.x - o.width/2, LANE_Y + o.y - o.height, o.width, o.height);
+                // 1. Shadow (Footprint)
+                g.beginFill(0x000000, 0.5);
+                g.drawRect(o.x - o.width/2, hitboxTop, o.width, o.height);
+                g.endFill();
+
+                // 2. Standing Visual Body
+                // We fake height to make it look like a standing wall.
+                // It stands at the bottom edge of the hitbox and goes UP.
+                const visualHeight = Math.max(o.height * 1.5, 120); 
+                
+                g.beginFill(0x444444); 
+                g.lineStyle(2, 0x666666); 
+                
+                // Draw standing rect from bottom up
+                g.drawRect(o.x - o.width/2, hitboxBottom - visualHeight, o.width, visualHeight);
                 g.endFill();
                 
+                // Add texture details
+                g.lineStyle(0);
+                g.beginFill(0x333333);
+                g.drawRect(o.x - o.width/2 + 5, hitboxBottom - visualHeight + 10, o.width - 10, 8); 
+                g.drawRect(o.x - o.width/2 + 5, hitboxBottom - 20, o.width - 10, 8);
+                g.endFill();
+
+                // 3. HP Bar (Above visual top)
                 if (o.health && o.maxHealth) {
                     const pct = o.health / o.maxHealth;
-                    g.beginFill(0x550000);
-                    g.drawRect(o.x - o.width/2, LANE_Y + o.y - o.height - 10, o.width, 5);
+                    const barY = hitboxBottom - visualHeight - 15;
+                    
+                    g.beginFill(0x000000);
+                    g.drawRect(o.x - o.width/2, barY, o.width, 6);
                     g.endFill();
                     
-                    g.beginFill(0xff0000);
-                    g.drawRect(o.x - o.width/2, LANE_Y + o.y - o.height - 10, o.width * pct, 5);
+                    g.beginFill(0x550000); 
+                    g.drawRect(o.x - o.width/2 + 1, barY + 1, o.width - 2, 4);
+                    g.endFill();
+                    
+                    g.beginFill(0xff3333); 
+                    g.drawRect(o.x - o.width/2 + 1, barY + 1, (o.width - 2) * pct, 4);
                     g.endFill();
                 }
             } else if (o.type === 'ROCK') {
-                g.beginFill(0x222222);
-                g.lineStyle(2, 0x555555);
-                g.drawCircle(o.x, LANE_Y + o.y, o.width/2);
+                // Shadow
+                g.beginFill(0x000000, 0.4);
+                g.drawCircle(o.x, LANE_Y + o.y - o.height/2, o.width/2);
                 g.endFill();
+
+                // Rock Body (Offset up)
+                g.beginFill(0x555555);
+                g.lineStyle(2, 0x333333);
+                g.drawCircle(o.x, LANE_Y + o.y - 15, o.width/2); 
+                g.endFill();
+                
+                // Highlight
+                g.lineStyle(0);
+                g.beginFill(0x777777);
+                g.drawCircle(o.x - o.width/6, LANE_Y + o.y - 25, o.width/6);
+                g.endFill();
+            } else if (o.type === 'WATER') {
+                // Water acts as a void/pit on the ground layer
+                g.beginFill(0x050510);
+                g.lineStyle(2, 0x1e3a8a);
+                g.drawRect(o.x - o.width/2, hitboxTop, o.width, o.height);
+                g.endFill();
+                
+                g.lineStyle(1, 0x3b82f6, 0.2);
+                for(let i=0; i<5; i++) {
+                    const waveY = hitboxTop + Math.random() * o.height;
+                    g.moveTo(o.x - o.width/2, waveY);
+                    g.lineTo(o.x + o.width/2, waveY);
+                }
             }
+            
             this.obstacleGraphics.push(g);
             this.terrainLayer.addChild(g);
         });
     }
+
     public drawHarvestNodes(nodes: HarvestNodeDef[]) { 
         this.harvestNodeGraphics.forEach(g => { g.clear(); g.destroy(); });
         this.harvestNodeGraphics = [];

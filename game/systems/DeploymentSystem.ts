@@ -63,8 +63,9 @@ export class DeploymentSystem {
         if (DataManager.instance.consumeStockpile(selectedType)) {
             // Spawn logic: Reinforcements arrive from the "rear" (left of camera).
             // Camera X tracks roughly the center of the screen.
-            // We spawn them sufficiently far back (-900) so they enter from off-screen left.
-            const spawnX = this.levelManager.cameraX - 900 + (Math.random() * 200);
+            // We increase safe distance to 1600 to support wide screens without pop-in.
+            const safeSpawnDistance = 1600;
+            const spawnX = this.levelManager.cameraX - safeSpawnDistance + (Math.random() * 200);
 
             this.events.emit('REQUEST_SPAWN', {
                 faction: Faction.ZERG,
