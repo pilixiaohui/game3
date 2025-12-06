@@ -57,6 +57,7 @@ export class FlowField {
         }
 
         // 2. Seed Goals
+        // PRIORITY A: Siege Targets (Distance = 0)
         if (isSiege && siegeTargets.length > 0) {
             // SIEGE MODE: Goal is the wall itself (or cells inside/touching it)
             for (const target of siegeTargets) {
@@ -80,11 +81,15 @@ export class FlowField {
                      }
                  }
             }
-        } else {
-            // MARCH MODE: Goal is Right Edge
-            for (let y = 0; y < this.rows; y++) {
-                const idx = y * this.cols + (this.cols - 1);
-                if (gridObstacles[idx] === 0) {
+        } 
+        
+        // PRIORITY B: Right Edge (Always fallback goal)
+        // This ensures that if a wall is breached, the natural flow is forward to the right.
+        for (let y = 0; y < this.rows; y++) {
+            const idx = y * this.cols + (this.cols - 1);
+            if (gridObstacles[idx] === 0) {
+                // Only mark if not already marked by a siege target (though overlap is fine with 0)
+                if (distanceField[idx] > 0) {
                     distanceField[idx] = 0;
                     queue.push(idx);
                 }
