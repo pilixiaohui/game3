@@ -135,13 +135,34 @@ export class CombatSystem {
         if (nextY < -MAP_PLAYABLE_HEIGHT) nextY = -MAP_PLAYABLE_HEIGHT;
         if (nextY > MAP_PLAYABLE_HEIGHT) nextY = MAP_PLAYABLE_HEIGHT;
         
+        // --- X AXIS BOUNDARIES ---
+        const stageWidth = STAGE_WIDTH;
+        const currentStageIndex = this.levelManager.currentStageIndex;
+        const stageStartX = currentStageIndex * stageWidth;
+        const stageEndX = stageStartX + stageWidth;
+
+        // Allow some buffer for spawning and off-screen maneuvering
+        // -150 is critical because Zerg loop resets to -50. If we clamped to 0, they would get stuck or jitter.
+        const HARD_BOUND_LEFT = stageStartX - 150; 
+        const HARD_BOUND_RIGHT = stageEndX + 150;
+
+        if (u.faction === Faction.HUMAN) {
+            if (nextX < HARD_BOUND_LEFT) nextX = HARD_BOUND_LEFT;
+            if (nextX > HARD_BOUND_RIGHT) nextX = HARD_BOUND_RIGHT;
+        } 
+        else if (u.faction === Faction.ZERG) {
+            // Prevent going too far back
+            if (nextX < HARD_BOUND_LEFT) nextX = HARD_BOUND_LEFT;
+            
+            // Only clamp right side if NOT battling (during battle they loop)
+            if (this.levelManager.currentState !== 'BATTLE') {
+                if (nextX > HARD_BOUND_RIGHT) nextX = HARD_BOUND_RIGHT;
+            }
+        }
+        
         // --- ENDLESS FLOOD LOOP ---
         // If Zerg unit passes stage end during BATTLE, loop back to start
         if (u.faction === Faction.ZERG && this.levelManager.currentState === 'BATTLE') {
-            const stageIndex = this.levelManager.currentStageIndex;
-            const stageStartX = stageIndex * STAGE_WIDTH;
-            const stageEndX = stageStartX + STAGE_WIDTH;
-
             if (nextX > stageEndX + 50) { // Buffer to go off-screen
                 nextX = stageStartX - 50; // Teleport to left off-screen
                 // Use 1.9x height factor (approx 95% of playable area) to match spawn logic distribution
