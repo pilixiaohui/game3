@@ -144,8 +144,8 @@ export class CombatSystem {
 
             if (nextX > stageEndX + 50) { // Buffer to go off-screen
                 nextX = stageStartX - 50; // Teleport to left off-screen
-                // Optional: Randomize Y slightly to vary the next wave
-                u.y = (Math.random() - 0.5) * (MAP_PLAYABLE_HEIGHT * 1.5);
+                // Use 1.9x height factor (approx 95% of playable area) to match spawn logic distribution
+                nextY = (Math.random() - 0.5) * (MAP_PLAYABLE_HEIGHT * 1.9);
             }
         }
 
