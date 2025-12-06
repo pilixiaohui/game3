@@ -1,7 +1,7 @@
 
 import { Sprite } from 'pixi.js';
 import { IUnit, UnitRuntimeStats, Faction, UnitType, GameModifiers, StatusType, GeneConfig } from '../types';
-import { UNIT_CONFIGS, LANE_Y, LANE_HEIGHT } from '../constants';
+import { UNIT_CONFIGS, LANE_Y, LANE_HEIGHT, MAP_PLAYABLE_HEIGHT } from '../constants';
 import { DataManager } from './DataManager';
 import { WorldRenderer } from './renderers/WorldRenderer';
 
@@ -61,9 +61,13 @@ export class UnitPool {
 
     // Reset Unit State
     unit.active = true; unit.isDead = false; unit.faction = faction; unit.type = type; unit.x = x; unit.level = level;
-    const r1 = Math.random(); const r2 = Math.random();
-    const yOffset = (r1 - r2) * (LANE_HEIGHT / 2); 
+    
+    // UPDATED: Use full map playable height for spawn distribution
+    // MAP_PLAYABLE_HEIGHT is usually 450, representing a +/- 450 range from LANE_Y
+    const yRange = MAP_PLAYABLE_HEIGHT * 0.9; // 90% coverage to avoid wall clipping
+    const yOffset = (Math.random() - 0.5) * 2 * yRange; 
     unit.y = LANE_Y + yOffset;
+
     unit.state = faction === Faction.ZERG ? 'MOVE' : 'IDLE';
     unit.target = null; unit.attackCooldown = 0; unit.statuses = {}; unit.context = {}; unit.flashTimer = 0;
     unit.decayTimer = 0; unit.engagedCount = 0; unit.speedVar = 0.85 + Math.random() * 0.3; unit.waveOffset = Math.random() * 100;

@@ -90,13 +90,11 @@ export class TextureFactory {
         maxUsedY += PADDING;
 
         try {
-            // PixiJS v7 generateTexture signature
-            // Explicitly providing 'region' is critical to avoid mismatch between
-            // Math.ceil'd frame sizes and Pixi's auto-detected float bounds.
-            this._atlasTexture = this._renderer.generateTexture(container, {
+            // FIX: PixiJS v8 generateTexture signature (options object)
+            this._atlasTexture = this._renderer.generateTexture({
+                target: container,
                 resolution: 2,
-                scaleMode: 1, // LINEAR
-                region: new Rectangle(0, 0, maxUsedX, maxUsedY)
+                frame: new Rectangle(0, 0, maxUsedX, maxUsedY)
             });
         } catch (e) {
             console.error("Texture baking failed:", e);
@@ -105,8 +103,11 @@ export class TextureFactory {
         }
 
         for (const [type, data] of Object.entries(mapping)) {
-            // PixiJS v7 Texture constructor
-            const texture = new Texture(this._atlasTexture.baseTexture, data.rect);
+            // FIX: PixiJS v8 Texture constructor signature (options object)
+            const texture = new Texture({
+                source: this._atlasTexture.source,
+                frame: data.rect
+            });
             
             // Default anchor
             (texture as any).defaultAnchor = { x: data.anchor.x, y: data.anchor.y };

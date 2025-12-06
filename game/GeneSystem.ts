@@ -529,7 +529,7 @@ GeneLibrary.register({
     }
 });
 
-// --- STANDARD GENES ---
+// --- STANDARD GENES (核心修改) ---
 
 GeneLibrary.register({
     id: 'GENE_ACQUIRE_TARGET',
@@ -538,9 +538,11 @@ GeneLibrary.register({
         const range = params.range || 600;
         const rangeSq = range * range;
 
+        // FIXED: 严格丢弃身后的目标
         if (self.target) {
             const t = self.target;
-            if (t.isDead || !t.active) {
+            const isBehind = (self.faction === Faction.ZERG && t.x < self.x);
+            if (t.isDead || !t.active || isBehind) {
                 self.target = null;
             } else {
                 const distSq = (t.x - self.x)**2 + (t.y - self.y)**2;
@@ -565,9 +567,9 @@ GeneLibrary.register({
                  const dy = entity.y - self.y;
                  const distSq = dx*dx + dy*dy;
                  
-                 // FLOOD MECHANIC: Zerg swarm should ignore enemies significantly behind them
-                 // This prevents the "turning back" issue where the swarm stalls
-                 if (self.faction === Faction.ZERG && dx < -100) continue; 
+                 // FIXED: 更加严格的防回头机制
+                 // 如果敌人坐标小于自己（在左边），完全无视，继续向右冲
+                 if (self.faction === Faction.ZERG && dx < 0) continue; 
 
                  if (distSq < bestDist) {
                      bestDist = distSq;
@@ -589,6 +591,13 @@ GeneLibrary.register({
         }
 
         if (self.target && !self.target.isDead) {
+            // FIXED: 攻击前检测位置关系
+            // 如果我是 Zerg 且已经跑到了目标右侧，禁止停下来攻击，必须继续移动
+            if (self.faction === Faction.ZERG && self.target.x < self.x) {
+                if (self.state === 'ATTACK') self.state = 'MOVE';
+                return;
+            }
+
             const distSq = (self.target.x - self.x)**2 + (self.target.y - self.y)**2;
             const rangeSq = self.stats.range * self.stats.range;
             
@@ -608,141 +617,18 @@ GeneLibrary.register({
 });
 
 GeneLibrary.register({
-    id: 'GENE_MELEE_ATTACK',
-    name: 'Melee Strike',
-    onPreAttack: (self, target, engine, params) => {
-        engine.events.emit('FX', { type: 'SLASH', x: self.x, y: self.y, targetX: target.x, targetY: target.y, color: ELEMENT_COLORS[self.stats.element] || 0xffffff });
-        engine.events.emit('FX', { type: 'FLASH', x: target.x + (Math.random() * 10 - 5), y: target.y - 10, color: ELEMENT_COLORS[self.stats.element] || 0xffffff });
-        engine.events.emit('REQUEST_DAMAGE_PIPELINE', { source: self, target });
-        return false; 
-    }
-});
-
-GeneLibrary.register({
-    id: 'GENE_RANGED_ATTACK',
-    name: 'Ranged Projectile',
-    onPreAttack: (self, target, engine, params) => {
-        const color = params.projectileColor || ELEMENT_COLORS[self.stats.element] || 0xffffff;
-        engine.events.emit('FX', { type: 'PROJECTILE', x: self.x, y: self.y - 15, x2: target.x, y2: target.y - 15, color });
-        engine.events.emit('REQUEST_DAMAGE_PIPELINE', { source: self, target });
-        return false; 
-    }
-});
-
-GeneLibrary.register({
-    id: 'GENE_ARTILLERY_ATTACK',
-    name: 'Lobbed Shot',
-    onPreAttack: (self, target, engine, params) => {
-        const color = params.color || ELEMENT_COLORS[self.stats.element] || 0xff7777;
-        engine.events.emit('FX', { type: 'PROJECTILE', x: self.x, y: self.y - (params.arcHeight || 20), x2: target.x, y2: target.y, color }); 
-        engine.events.emit('REQUEST_DAMAGE_PIPELINE', { source: self, target });
-        return false;
-    }
-});
-
-GeneLibrary.register({
-    id: 'GENE_CLEAVE_ATTACK',
-    name: 'Cleave',
-    onPreAttack: (self, target, engine, params) => {
-        const color = ELEMENT_COLORS[self.stats.element] || 0xffff00;
-        engine.events.emit('FX', { type: 'FLASH', x: target.x, y: target.y, color });
-        
-        const radius = params.radius || 40;
-        engine.events.emit('FX', { type: 'SHOCKWAVE', x: target.x, y: target.y, radius, color });
-        
-        engine.events.emit('REQUEST_DAMAGE_PIPELINE', { source: self, target });
-        
-        const neighbors = engine._sharedQueryBuffer;
-        const count = engine.spatialHash.query(target.x, target.y, radius, neighbors);
-        
-        // Fix: Copy array to avoid buffer overwrite during recursive events
-        const targets: IUnit[] = [];
-        for(let i=0; i<count; i++) targets.push(neighbors[i]);
-
-        for (const n of targets) {
-            if (n !== target && n.faction !== self.faction && !n.isDead) {
-                engine.events.emit('REQUEST_DAMAGE_PIPELINE', { source: self, target: n });
-            }
-        }
-        return false;
-    }
-});
-
-GeneLibrary.register({
-    id: 'GENE_ELEMENTAL_HIT',
-    name: 'Elemental Application',
-    onHit: (self, target, damage, engine, params) => {
-        const el = self.stats.element;
-        const amount = params.amount || UNIT_CONFIGS[self.type].elementConfig?.statusPerHit || 10;
-        
-        if (el === 'THERMAL') engine.events.emit('REQUEST_STATUS', { target, type: 'BURNING', stacks: amount, duration: 5 });
-        if (el === 'CRYO') engine.events.emit('REQUEST_STATUS', { target, type: 'FROZEN', stacks: amount, duration: 5 });
-        if (el === 'VOLTAIC') engine.events.emit('REQUEST_STATUS', { target, type: 'SHOCKED', stacks: amount, duration: 5 });
-        if (el === 'TOXIN') engine.events.emit('REQUEST_STATUS', { target, type: 'POISONED', stacks: amount, duration: 5 });
-        
-        engine.events.emit('FX', { type: 'PARTICLES', x: target.x, y: target.y, color: ELEMENT_COLORS[el] || 0xffffff, count: 3 });
-    }
-});
-
-GeneLibrary.register({
-    id: 'GENE_REGEN',
-    name: 'Regeneration',
-    onTick: (self, dt, engine, params) => {
-        const rate = params.rate || 0.05;
-        if (self.stats.hp < self.stats.maxHp && !self.isDead) {
-            self.stats.hp += self.stats.maxHp * rate * dt; 
-            if (self.stats.hp > self.stats.maxHp) self.stats.hp = self.stats.maxHp;
-            if (Math.random() < 0.05) engine.events.emit('FX', { type: 'HEAL', x: self.x, y: self.y });
-        }
-    }
-});
-
-GeneLibrary.register({
-    id: 'GENE_EXPLODE_ON_DEATH',
-    name: 'Volatile',
-    onDeath: (self, engine, params) => {
-        const radius = params.radius || 60;
-        const dmg = params.damage || 40;
-        engine.events.emit('FX', { type: 'EXPLOSION', x: self.x, y: self.y, radius, color: ELEMENT_COLORS[self.stats.element] });
-        engine.events.emit('FX', { type: 'SHOCKWAVE', x: self.x, y: self.y, radius, color: ELEMENT_COLORS[self.stats.element] });
-        
-        const neighbors = engine._sharedQueryBuffer;
-        const count = engine.spatialHash.query(self.x, self.y, radius, neighbors);
-        
-        // Fix: Copy array to avoid buffer overwrite during recursive events
-        const targets: IUnit[] = [];
-        for(let i=0; i<count; i++) targets.push(neighbors[i]);
-
-        for (const n of targets) {
-            if (n.faction !== self.faction && !n.isDead) {
-                engine.events.emit('REQUEST_TRUE_DAMAGE', { target: n, amount: dmg });
-            }
-        }
-    }
-});
-
-GeneLibrary.register({
-    id: 'GENE_WANDER',
-    name: 'Idle Wander',
-    onMove: (self, velocity, dt, engine, params) => {
-        if ((self.statuses['SHOCKED'] || self.statuses['STUNNED']) && Math.random() < 0.05) return;
-        self.wanderTimer -= dt;
-        if (self.wanderTimer <= 0) { 
-            self.wanderTimer = 1 + Math.random() * 2; 
-            self.wanderDir = Math.random() > 0.5 ? 1 : -1; 
-        }
-        const speedMult = self.statuses['SLOWED'] ? 0.5 : 1.0;
-        velocity.x += self.wanderDir * self.stats.speed * 0.3 * speedMult * dt;
-        velocity.y += (Math.random() - 0.5) * 0.5;
-        self.state = 'WANDER';
-    }
-});
-
-GeneLibrary.register({
     id: 'GENE_COMBAT_MOVEMENT',
     name: 'Combat Movement',
     onMove: (self, velocity, dt, engine, params) => {
-        if (self.state === 'ATTACK') return;
+        // FIXED: 如果处于攻击状态，但目标在身后，则必须解除攻击状态并移动（双重保险）
+        if (self.state === 'ATTACK') {
+            if (self.faction === Faction.ZERG && self.target && self.target.x < self.x) {
+                self.state = 'MOVE'; // 强制解除锁定
+            } else {
+                return;
+            }
+        }
+
         if ((self.statuses['SHOCKED'] || self.statuses['STUNNED']) && Math.random() < 0.05) return;
 
         let isMoving = false;
@@ -750,63 +636,57 @@ GeneLibrary.register({
         const moveMult = params.multiplier || 1.0;
 
         // Flow Field Integration
-        // Access LevelManager via engine interface
         // @ts-ignore
         const lm = engine.levelManager;
         // @ts-ignore
         const isSiege = lm?.currentState === 'SIEGE';
         const flow = lm ? lm.getFlowVector(self.x, self.y) : { x: (self.faction === Faction.ZERG ? 1 : -1), y: 0 };
         
-        // HARVEST LOGIC OVERRIDE
-        if (self.state === 'SEEK' || self.state === 'RETURN') {
+        if (self.state === 'SEEK' || self.state === 'RETURN' || self.state === 'DEPOSIT') {
+             // Harvest logic...
              if (self.steeringForce.x !== 0 || self.steeringForce.y !== 0) {
                  velocity.x += self.steeringForce.x * speedMult * dt;
                  velocity.y += self.steeringForce.y * speedMult * dt;
                  isMoving = true;
              }
         } 
-        // COMBAT LOGIC
         else if (self.target && !self.target.isDead) {
             const distSq = (self.target.x - self.x)**2 + (self.target.y - self.y)**2;
             const dist = Math.sqrt(distSq);
             
-            // Should we chase?
-            // If Zerg, and target is behind us (to the left), only chase if very close.
+            // FIXED: Zerg 移动逻辑大改
             const isTargetBehind = (self.faction === Faction.ZERG && self.target.x < self.x);
-            // Tighten chase threshold if behind to prevent stalling
-            const chaseThreshold = isTargetBehind ? 80 : self.stats.range * 0.9;
-
-            if (dist > chaseThreshold) {
-                // Blend Flow Field with Direct Seeking
-                const dirX = (self.target.x - self.x) / dist;
-                const dirY = (self.target.y - self.y) / dist;
-                
-                // ADJUSTMENT: For Zerg, enforce forward flow bias to maintain "flood" feel.
-                // Decrease bias towards target if target is far or not directly ahead.
-                let bias = Math.min(0.6, 100 / (dist + 0.1)); 
-                
-                if (self.faction === Faction.ZERG) {
-                    bias = Math.min(0.4, 80 / (dist + 0.1)); // Cap bias at 40% for Zerg
-                    // CRITICAL: If target is behind, drastically reduce bias so FlowField (Right) wins
-                    // This forces the unit to keep flowing right even if engaged with a straggler, unless very close
-                    if (isTargetBehind) bias *= 0.05; 
-                }
-
-                if (isSiege) {
-                    // In siege, reduce direct seeking bias so units flow through the maze/to the wall naturally
-                    bias *= 0.5;
-                }
-
-                const finalX = dirX * bias + flow.x * (1 - bias);
-                const finalY = dirY * bias + flow.y * (1 - bias);
-
-                velocity.x += finalX * self.stats.speed * self.speedVar * speedMult * moveMult * dt;
-                velocity.y += finalY * self.stats.speed * self.speedVar * speedMult * moveMult * dt;
+            
+            // 如果目标在身后，强制不追踪，直接用流场向右推
+            if (isTargetBehind) {
+                // 完全忽略目标方向，使用 flow
+                velocity.x += flow.x * self.stats.speed * self.speedVar * speedMult * moveMult * dt;
+                velocity.y += flow.y * self.stats.speed * self.speedVar * speedMult * moveMult * dt;
                 isMoving = true;
+            } else {
+                // 正常追击
+                const chaseThreshold = self.stats.range * 0.9;
+                if (dist > chaseThreshold) {
+                    const dirX = (self.target.x - self.x) / dist;
+                    const dirY = (self.target.y - self.y) / dist;
+                    
+                    let bias = Math.min(0.6, 100 / (dist + 0.1)); 
+                    if (self.faction === Faction.ZERG) {
+                        bias = Math.min(0.4, 80 / (dist + 0.1)); 
+                    }
+                    if (isSiege) bias *= 0.5;
+
+                    const finalX = dirX * bias + flow.x * (1 - bias);
+                    const finalY = dirY * bias + flow.y * (1 - bias);
+
+                    velocity.x += finalX * self.stats.speed * self.speedVar * speedMult * moveMult * dt;
+                    velocity.y += finalY * self.stats.speed * self.speedVar * speedMult * moveMult * dt;
+                    isMoving = true;
+                }
             }
         } 
         else {
-            // When just marching, follow flow field heavily
+            // 无目标：行军
             if (self.stats.speed > 0) {
                 const finalX = (self.faction === Faction.ZERG) ? flow.x : -flow.x;
                 const finalY = flow.y; 
@@ -831,7 +711,6 @@ GeneLibrary.register({
     onMove: (self, velocity, dt, engine, params) => {
         if (self.state === 'ATTACK' || self.stats.speed <= 0) return;
 
-        // Optimization: Stagger updates based on ID to spread load
         const frame = Math.floor(Date.now() / 32); 
         const shouldUpdate = (frame + self.id) % 3 === 0;
 
@@ -898,5 +777,134 @@ GeneLibrary.register({
         const mult = params.multiplier || 1.2;
         velocity.x *= mult;
         velocity.y *= mult;
+    }
+});
+
+GeneLibrary.register({
+    id: 'GENE_MELEE_ATTACK',
+    name: 'Melee Strike',
+    onPreAttack: (self, target, engine, params) => {
+        engine.events.emit('FX', { type: 'SLASH', x: self.x, y: self.y, targetX: target.x, targetY: target.y, color: ELEMENT_COLORS[self.stats.element] || 0xffffff });
+        engine.events.emit('FX', { type: 'FLASH', x: target.x + (Math.random() * 10 - 5), y: target.y - 10, color: ELEMENT_COLORS[self.stats.element] || 0xffffff });
+        engine.events.emit('REQUEST_DAMAGE_PIPELINE', { source: self, target });
+        return false;
+    }
+});
+
+GeneLibrary.register({
+    id: 'GENE_RANGED_ATTACK',
+    name: 'Ranged Projectile',
+    onPreAttack: (self, target, engine, params) => {
+        const color = params.projectileColor || ELEMENT_COLORS[self.stats.element] || 0xffffff;
+        engine.events.emit('FX', { type: 'PROJECTILE', x: self.x, y: self.y - 15, x2: target.x, y2: target.y - 15, color });
+        engine.events.emit('REQUEST_DAMAGE_PIPELINE', { source: self, target });
+        return false;
+    }
+});
+
+GeneLibrary.register({
+    id: 'GENE_ARTILLERY_ATTACK',
+    name: 'Lobbed Shot',
+    onPreAttack: (self, target, engine, params) => {
+        const color = params.color || ELEMENT_COLORS[self.stats.element] || 0xff7777;
+        engine.events.emit('FX', { type: 'PROJECTILE', x: self.x, y: self.y - (params.arcHeight || 20), x2: target.x, y2: target.y, color });
+        engine.events.emit('REQUEST_DAMAGE_PIPELINE', { source: self, target });
+        return false;
+    }
+});
+
+GeneLibrary.register({
+    id: 'GENE_CLEAVE_ATTACK',
+    name: 'Cleave',
+    onPreAttack: (self, target, engine, params) => {
+        const color = ELEMENT_COLORS[self.stats.element] || 0xffff00;
+        engine.events.emit('FX', { type: 'FLASH', x: target.x, y: target.y, color });
+
+        const radius = params.radius || 40;
+        engine.events.emit('FX', { type: 'SHOCKWAVE', x: target.x, y: target.y, radius, color });
+        
+        engine.events.emit('REQUEST_DAMAGE_PIPELINE', { source: self, target });
+        
+        const neighbors = engine._sharedQueryBuffer;
+        const count = engine.spatialHash.query(target.x, target.y, radius, neighbors);
+        
+        const targets: IUnit[] = [];
+        for(let i=0; i<count; i++) targets.push(neighbors[i]);
+
+        for (const n of targets) {
+            if (n !== target && n.faction !== self.faction && !n.isDead) {
+                engine.events.emit('REQUEST_DAMAGE_PIPELINE', { source: self, target: n });
+            }
+        }
+        return false;
+    }
+});
+
+GeneLibrary.register({
+    id: 'GENE_ELEMENTAL_HIT',
+    name: 'Elemental Application',
+    onHit: (self, target, damage, engine, params) => {
+        const el = self.stats.element;
+        const amount = params.amount || UNIT_CONFIGS[self.type].elementConfig?.statusPerHit || 10;
+
+        if (el === 'THERMAL') engine.events.emit('REQUEST_STATUS', { target, type: 'BURNING', stacks: amount, duration: 5 });
+        if (el === 'CRYO') engine.events.emit('REQUEST_STATUS', { target, type: 'FROZEN', stacks: amount, duration: 5 });
+        if (el === 'VOLTAIC') engine.events.emit('REQUEST_STATUS', { target, type: 'SHOCKED', stacks: amount, duration: 5 });
+        if (el === 'TOXIN') engine.events.emit('REQUEST_STATUS', { target, type: 'POISONED', stacks: amount, duration: 5 });
+        
+        engine.events.emit('FX', { type: 'PARTICLES', x: target.x, y: target.y, color: ELEMENT_COLORS[el] || 0xffffff, count: 3 });
+    }
+});
+
+GeneLibrary.register({
+    id: 'GENE_REGEN',
+    name: 'Regeneration',
+    onTick: (self, dt, engine, params) => {
+        const rate = params.rate || 0.05;
+        if (self.stats.hp < self.stats.maxHp && !self.isDead) {
+            self.stats.hp += self.stats.maxHp * rate * dt;
+            if (self.stats.hp > self.stats.maxHp) self.stats.hp = self.stats.maxHp;
+            if (Math.random() < 0.05) engine.events.emit('FX', { type: 'HEAL', x: self.x, y: self.y });
+        }
+    }
+});
+
+GeneLibrary.register({
+    id: 'GENE_EXPLODE_ON_DEATH',
+    name: 'Volatile',
+    onDeath: (self, engine, params) => {
+        const radius = params.radius || 60;
+        const dmg = params.damage || 40;
+        engine.events.emit('FX', { type: 'EXPLOSION', x: self.x, y: self.y, radius, color: ELEMENT_COLORS[self.stats.element] });
+        engine.events.emit('FX', { type: 'SHOCKWAVE', x: self.x, y: self.y, radius, color: ELEMENT_COLORS[self.stats.element] });
+
+        const neighbors = engine._sharedQueryBuffer;
+        const count = engine.spatialHash.query(self.x, self.y, radius, neighbors);
+        
+        const targets: IUnit[] = [];
+        for(let i=0; i<count; i++) targets.push(neighbors[i]);
+
+        for (const n of targets) {
+            if (n.faction !== self.faction && !n.isDead) {
+                engine.events.emit('REQUEST_TRUE_DAMAGE', { target: n, amount: dmg });
+            }
+        }
+    }
+});
+
+GeneLibrary.register({
+    id: 'GENE_WANDER',
+    name: 'Idle Wander',
+    onMove: (self, velocity, dt, engine, params) => {
+        if ((self.statuses['SHOCKED'] || self.statuses['STUNNED']) && Math.random() < 0.05) return;
+        self.wanderTimer -= dt;
+        if (self.wanderTimer <= 0) {
+            self.wanderTimer = 1 + Math.random() * 2;
+            self.wanderDir = Math.random() > 0.5 ? 1 : -1;
+        }
+        const speedMult = self.statuses['SLOWED'] ? 0.5 : 1.0;
+        velocity.x += self.wanderDir * self.stats.speed * 0.3 * speedMult * dt;
+        velocity.y += (Math.random() - 0.5) * 0.5;
+        self.state = 'WANDER';
     }
 });

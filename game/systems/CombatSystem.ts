@@ -14,7 +14,7 @@ export class CombatSystem {
     private levelManager: LevelManager;
     private isEnabled: boolean = false;
 
-    // Bound handlers for event listeners (to ensure proper 'this' context and removal)
+    // Bound handlers
     private boundDealTrueDamage: (d: any) => void;
     private boundKillUnit: (d: any) => void;
     private boundApplyStatus: (d: any) => void;
@@ -27,7 +27,6 @@ export class CombatSystem {
         this.spatialHash = spatialHash;
         this.levelManager = levelManager;
 
-        // Pre-bind handlers
         this.boundDealTrueDamage = (d: any) => this.dealTrueDamage(d.target, d.amount);
         this.boundKillUnit = (d: any) => this.killUnit(d.target);
         this.boundApplyStatus = (d: any) => this.applyStatus(d.target, d.type, d.stacks, d.duration);
@@ -38,7 +37,6 @@ export class CombatSystem {
     public enable() {
         if (this.isEnabled) return;
         this.isEnabled = true;
-        
         this.engine.events.on('REQUEST_TRUE_DAMAGE', this.boundDealTrueDamage);
         this.engine.events.on('REQUEST_KILL', this.boundKillUnit);
         this.engine.events.on('REQUEST_STATUS', this.boundApplyStatus);
@@ -49,7 +47,6 @@ export class CombatSystem {
     public disable() {
         if (!this.isEnabled) return;
         this.isEnabled = false;
-
         this.engine.events.off('REQUEST_TRUE_DAMAGE', this.boundDealTrueDamage);
         this.engine.events.off('REQUEST_KILL', this.boundKillUnit);
         this.engine.events.off('REQUEST_STATUS', this.boundApplyStatus);
@@ -66,13 +63,11 @@ export class CombatSystem {
 
         const allUnits = this.unitPool.getActiveUnits();
         
-        // Rebuild Spatial Hash
         this.spatialHash.clear();
         for (const u of allUnits) {
             if (!u.isDead) this.spatialHash.insert(u);
         }
 
-        // Render HP Bars logic is handled by renderer now, CombatSystem only handles logic
         this.engine.renderer?.renderHpBars(allUnits);
 
         for (const u of allUnits) {
@@ -84,12 +79,9 @@ export class CombatSystem {
         if (u.isDead) {
             u.decayTimer += dt;
             if (u.decayTimer > DECAY_TIME) {
-                // STAMP DECAL
                 this.engine.events.emit('STAMP_DECAL', { 
-                    x: u.x, 
-                    y: u.y, 
-                    type: u.type, 
-                    rotation: u.view ? u.view.rotation : 0,
+                    x: u.x, y: u.y, type: u.type, 
+                    rotation: u.view ? u.view.rotation : 0, 
                     scaleX: u.view ? u.view.scale.x : 1
                 });
                 this.unitPool.recycle(u);
@@ -114,7 +106,6 @@ export class CombatSystem {
             const trait = GeneLibrary.get(gene.id);
             if (trait) {
                 if (trait.onTick) trait.onTick(u, dt, this.engine, gene.params || {});
-                // Hacky throttle for target updates
                 if (trait.onUpdateTarget && (Math.random() < 0.1)) {
                    trait.onUpdateTarget(u, dt, this.engine, gene.params || {});
                 }
@@ -122,53 +113,45 @@ export class CombatSystem {
             }
         }
         
-        // --- AXIS SEPARATED COLLISION (SLIDING) ---
+        // --- AXIS SEPARATED COLLISION ---
         let nextX = u.x + velocity.x;
-        let nextY = u.y; // Try X move first
+        let nextY = u.y;
         
         let wallHit = this.checkWallCollision(nextX, nextY, u.radius);
         if (wallHit) {
-            // Blocked on X, zero out X velocity for next step check, but keep Y momentum potential
             nextX = u.x; 
             velocity.x = 0;
             this.handleWallHit(u, wallHit, dt);
         }
 
-        nextY = u.y + velocity.y; // Now add Y component
-        
-        // Re-check full position with new Y
+        nextY = u.y + velocity.y;
         wallHit = this.checkWallCollision(nextX, nextY, u.radius);
         if (wallHit) {
-             nextY = u.y; // Blocked on Y
+             nextY = u.y;
              velocity.y = 0;
              this.handleWallHit(u, wallHit, dt);
         }
 
-        // Clamp Y Map Bounds
         if (nextY < -MAP_PLAYABLE_HEIGHT) nextY = -MAP_PLAYABLE_HEIGHT;
         if (nextY > MAP_PLAYABLE_HEIGHT) nextY = MAP_PLAYABLE_HEIGHT;
         
-        // --- FIXED: 战场循环机制 (Battlefield Loop) ---
-        // 只有虫族单位需要循环，人类单位是防守方
-        if (u.faction === Faction.ZERG) {
+        // --- ENDLESS FLOOD LOOP ---
+        // If Zerg unit passes stage end during BATTLE, loop back to start
+        if (u.faction === Faction.ZERG && this.levelManager.currentState === 'BATTLE') {
             const stageIndex = this.levelManager.currentStageIndex;
             const stageStartX = stageIndex * STAGE_WIDTH;
-            const stageEndX = (stageIndex + 1) * STAGE_WIDTH;
+            const stageEndX = stageStartX + STAGE_WIDTH;
 
-            // 如果冲出了当前战场的右边界，传送回左边界
-            // 这保证了在“攻坚”阶段（Locked），单位会源源不断地循环冲击
-            // 当关卡胜利（stageIndex增加）时，stageEndX 会变大，单位自然就“流”向了下一关，不再循环
-            if (nextX > stageEndX) {
-                nextX = stageStartX;
-                // 可选：重置Y坐标到随机位置以模拟新的一波，或者保持Y坐标
-                // u.y = LANE_Y + (Math.random() - 0.5) * 200; 
+            if (nextX > stageEndX + 50) { // Buffer to go off-screen
+                nextX = stageStartX - 50; // Teleport to left off-screen
+                // Optional: Randomize Y slightly to vary the next wave
+                u.y = (Math.random() - 0.5) * (MAP_PLAYABLE_HEIGHT * 1.5);
             }
         }
 
         u.x = nextX;
         u.y = nextY;
         
-        // Store velocity for Renderer (Squash & Stretch)
         u.velocity.x = velocity.x;
         u.velocity.y = velocity.y;
     }
@@ -190,11 +173,9 @@ export class CombatSystem {
     }
 
     private checkWallCollision(x: number, y: number, r: number): ObstacleDef | null {
-        // Optimization: Broad Phase Check
-        // Only check obstacles within a reasonable X distance
+        // Optimization check nearby
         for (const obs of this.levelManager.activeObstacles) {
-            if (Math.abs(obs.x - x) > 150) continue; // Skip far obstacles
-
+            if (Math.abs(obs.x - x) > 150) continue;
             if (obs.type === 'WALL') {
                if (x + r > obs.x - obs.width/2 && x - r < obs.x + obs.width/2 &&
                    y > LANE_Y + obs.y - obs.height && y < LANE_Y + obs.y) return obs;
@@ -202,8 +183,6 @@ export class CombatSystem {
         }
         return null;
     }
-
-    // --- Internal Logic ---
 
     private dealTrueDamage(target: IUnit, amount: number) {
         if (target.isDead) return;
@@ -219,7 +198,6 @@ export class CombatSystem {
             DataManager.instance.modifyResource('biomass', 5 * u.level);
             DataManager.instance.recordKill();
             if (Math.random() < 0.2) DataManager.instance.modifyResource('dna', 1);
-            if (u.id % 5 === 0) DataManager.instance.updateRegionProgress(this.levelManager.activeRegionId, 1);
         }
         for (const gene of u.geneConfig) {
             const trait = GeneLibrary.get(gene.id);
@@ -239,7 +217,6 @@ export class CombatSystem {
         if (target.isDead || source.isDead) return;
         let damage = source.stats.damage;
         
-        // 1. Source Modifiers
         if (Math.random() < source.stats.critChance) { 
             damage *= source.stats.critDamage; 
             this.engine.events.emit('FX', { type: 'TEXT', x: target.x, y: target.y - 30, text: "CRIT!", color: 0xff0000, fontSize: 16 });
@@ -250,7 +227,6 @@ export class CombatSystem {
             if (trait && trait.onHit) trait.onHit(source, target, damage, this.engine, gene.params || {}); 
         }
 
-        // 2. Mitigation
         let damageTaken = damage;
         if (source.stats.element === 'PHYSICAL') {
             let armor = target.stats.armor;
@@ -262,7 +238,6 @@ export class CombatSystem {
             if (trait && trait.onWasHit) damageTaken = trait.onWasHit(target, source, damageTaken, this.engine, gene.params || {}); 
         }
 
-        // 3. Application
         target.stats.hp -= damageTaken;
         target.lastHitTime = Date.now();
         this.engine.events.emit('FX', { 

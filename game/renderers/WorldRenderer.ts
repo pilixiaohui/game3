@@ -1,5 +1,5 @@
 
-import { Application, Container, Graphics, TilingSprite, Text, TextStyle, Texture, Sprite, RenderTexture, ParticleContainer } from 'pixi.js';
+import { Application, Container, Graphics, TilingSprite, Text, TextStyle, Texture, Sprite, RenderTexture } from 'pixi.js';
 import { IUnit, ObstacleDef, UnitType, Faction, IFxEvent, HarvestNodeDef } from '../../types';
 import { LANE_Y, UNIT_CONFIGS, ELEMENT_COLORS } from '../../constants';
 import { SimpleEventEmitter } from '../DataManager';
@@ -12,7 +12,7 @@ export class WorldRenderer {
     
     private bgLayer!: TilingSprite;
     private groundLayer!: TilingSprite;
-    public unitLayer!: ParticleContainer; // Optimized
+    public unitLayer!: Container; 
     public terrainLayer!: Container;
     public particleLayer!: Container;
     public hiveLayer!: Container;
@@ -43,7 +43,9 @@ export class WorldRenderer {
         await AssetManager.instance.loadResources();
         if (this.isDestroyed) return;
 
-        // 1. Create App (PixiJS v7 Compatibility)
+        // 1. Create App (PixiJS v7/v8 Compatibility)
+        // Note: new Application({...}) is deprecated in v8, but we keep it as user code for now unless errors reported.
+        // Assuming v8 types for methods below.
         this.app = new Application({ 
             resizeTo: this.element, 
             backgroundColor: 0x0a0a0a, 
@@ -115,16 +117,7 @@ export class WorldRenderer {
         this.hiveLayer = new Container(); this.hiveLayer.zIndex = 6;
         this.world.addChild(this.hiveLayer);
         
-        // --- OPERATION TEXTURE BAKE: High Performance Unit Layer ---
-        // PixiJS v7: Use ParticleContainer for performance
-        this.unitLayer = new ParticleContainer(2500, {
-            position: true,
-            rotation: true,
-            tint: true,
-            vertices: true, // For scale
-            uvs: true       // For texture frame changes
-        });
-        
+        this.unitLayer = new Container();
         this.unitLayer.zIndex = 10;
         this.world.addChild(this.unitLayer);
         
@@ -144,14 +137,9 @@ export class WorldRenderer {
     }
     
     public initUnitView(unit: IUnit) {
-        // [Fix] ParticleContainer requires all sprites to share the same BaseTexture.
-        // We use a texture from the atlas (UnitType.MELEE) as the placeholder to ensure the correct BaseTexture is set.
-        // Using Texture.EMPTY would set a different BaseTexture, causing invisible units when switched to Atlas.
         const placeholderTex = TextureFactory.getTexture(UnitType.MELEE) || Texture.EMPTY;
         
         const sprite = new Sprite(placeholderTex);
-        
-        // Initially hide until the unit is properly spawned and activated
         sprite.visible = false; 
         sprite.alpha = 0;
 
@@ -181,9 +169,10 @@ export class WorldRenderer {
         s.scale.set(data.scaleX, 1.0);
         s.tint = 0x333333; s.alpha = 0.7;
         
-        // v7 render signature
-        this.app.renderer.render(s, {
-            renderTexture: this.decalRenderTexture,
+        // FIX: PixiJS v8 render signature (options object)
+        this.app.renderer.render({
+            container: s,
+            target: this.decalRenderTexture,
             clear: false
         });
     }
@@ -293,7 +282,6 @@ export class WorldRenderer {
              const t = Math.sin(Date.now() / 50); 
              view.tint = t > 0 ? 0xff0000 : 0xffffff;
         } else {
-             view.tint = 0xff0000; // Reset tint if needed, wait, 0xffffff is normal
              view.tint = 0xffffff;
         }
         view.scale.set(scaleX, scaleY);
@@ -340,38 +328,30 @@ export class WorldRenderer {
         obs.forEach(o => {
             const g = new Graphics();
             
-            // --- 1. Draw Hitbox (Shadow/Base) - The logic area on the floor ---
-            // o.y is the bottom coordinate of the hitbox in lane space
-            // o.height is the depth of the hitbox in lane space
             const hitboxBottom = LANE_Y + o.y;
             const hitboxTop = LANE_Y + o.y - o.height;
             
             if (o.type === 'WALL') {
-                // 1. Shadow (Footprint)
+                // Shadow
                 g.beginFill(0x000000, 0.5);
                 g.drawRect(o.x - o.width/2, hitboxTop, o.width, o.height);
                 g.endFill();
 
-                // 2. Standing Visual Body
-                // We fake height to make it look like a standing wall.
-                // It stands at the bottom edge of the hitbox and goes UP.
+                // Standing Visual Body
                 const visualHeight = Math.max(o.height * 1.5, 120); 
                 
-                g.beginFill(0x444444); 
-                g.lineStyle(2, 0x666666); 
-                
-                // Draw standing rect from bottom up
+                g.beginFill(0x444444);
+                g.lineStyle(2, 0x666666);
                 g.drawRect(o.x - o.width/2, hitboxBottom - visualHeight, o.width, visualHeight);
                 g.endFill();
                 
                 // Add texture details
-                g.lineStyle(0);
                 g.beginFill(0x333333);
-                g.drawRect(o.x - o.width/2 + 5, hitboxBottom - visualHeight + 10, o.width - 10, 8); 
+                g.drawRect(o.x - o.width/2 + 5, hitboxBottom - visualHeight + 10, o.width - 10, 8);
                 g.drawRect(o.x - o.width/2 + 5, hitboxBottom - 20, o.width - 10, 8);
                 g.endFill();
 
-                // 3. HP Bar (Above visual top)
+                // HP Bar
                 if (o.health && o.maxHealth) {
                     const pct = o.health / o.maxHealth;
                     const barY = hitboxBottom - visualHeight - 15;
@@ -380,11 +360,11 @@ export class WorldRenderer {
                     g.drawRect(o.x - o.width/2, barY, o.width, 6);
                     g.endFill();
                     
-                    g.beginFill(0x550000); 
+                    g.beginFill(0x550000);
                     g.drawRect(o.x - o.width/2 + 1, barY + 1, o.width - 2, 4);
                     g.endFill();
                     
-                    g.beginFill(0xff3333); 
+                    g.beginFill(0xff3333);
                     g.drawRect(o.x - o.width/2 + 1, barY + 1, (o.width - 2) * pct, 4);
                     g.endFill();
                 }
@@ -394,27 +374,25 @@ export class WorldRenderer {
                 g.drawCircle(o.x, LANE_Y + o.y - o.height/2, o.width/2);
                 g.endFill();
 
-                // Rock Body (Offset up)
+                // Rock Body
                 g.beginFill(0x555555);
                 g.lineStyle(2, 0x333333);
-                g.drawCircle(o.x, LANE_Y + o.y - 15, o.width/2); 
+                g.drawCircle(o.x, LANE_Y + o.y - 15, o.width/2);
                 g.endFill();
                 
                 // Highlight
-                g.lineStyle(0);
                 g.beginFill(0x777777);
                 g.drawCircle(o.x - o.width/6, LANE_Y + o.y - 25, o.width/6);
                 g.endFill();
             } else if (o.type === 'WATER') {
-                // Water acts as a void/pit on the ground layer
                 g.beginFill(0x050510);
                 g.lineStyle(2, 0x1e3a8a);
                 g.drawRect(o.x - o.width/2, hitboxTop, o.width, o.height);
                 g.endFill();
                 
-                g.lineStyle(1, 0x3b82f6, 0.2);
                 for(let i=0; i<5; i++) {
                     const waveY = hitboxTop + Math.random() * o.height;
+                    g.lineStyle(1, 0x3b82f6, 0.2);
                     g.moveTo(o.x - o.width/2, waveY);
                     g.lineTo(o.x + o.width/2, waveY);
                 }
@@ -495,13 +473,9 @@ export class WorldRenderer {
 
         if (this.app) {
             try {
-                // [Fix] Do NOT destroy textures/baseTextures. 
-                // TextureFactory manages the Atlas texture lifecycle globally.
-                // Destroying them here corrupts the TextureFactory cache for other active renderers.
                 this.app.destroy(true, { 
                     children: true, 
-                    texture: false, 
-                    baseTexture: false 
+                    texture: false
                 });
             } catch (e) {
                 // suppress

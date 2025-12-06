@@ -12,7 +12,7 @@ export class DeploymentSystem {
     
     private timer: number = 0;
     public isEnabled: boolean = true;
-    private readonly CHECK_INTERVAL = 0.1; // Check every 100ms
+    private readonly CHECK_INTERVAL = 0.1; 
 
     constructor(unitPool: UnitPool, levelManager: LevelManager, events: SimpleEventEmitter) {
         this.unitPool = unitPool;
@@ -27,24 +27,18 @@ export class DeploymentSystem {
         if (this.timer < this.CHECK_INTERVAL) return;
         this.timer = 0;
 
-        // 1. Check Stockpile
         const stockpile = DataManager.instance.state.hive.unitStockpile;
         
-        // Filter out NON_COMBAT units via tag system
         const availableTypes = (Object.keys(stockpile) as UnitType[]).filter(t => {
             const count = stockpile[t] || 0;
             if (count <= 0) return false;
-
             const config = UNIT_CONFIGS[t];
             if (!config) return false;
-
-            const isNonCombat = config.tags?.includes('NON_COMBAT');
-            return !isNonCombat;
+            return !config.tags?.includes('NON_COMBAT');
         });
         
         if (availableTypes.length === 0) return;
 
-        // 2. Check Caps (Performance & Game Balance)
         const activeUnits = this.unitPool.getActiveUnits();
         const activeZerg = activeUnits.filter(u => u.faction === Faction.ZERG && !u.isDead);
         
@@ -56,17 +50,12 @@ export class DeploymentSystem {
 
         if (spawnableTypes.length === 0) return;
 
-        // 3. Select & Spawn
         const selectedType = spawnableTypes[Math.floor(Math.random() * spawnableTypes.length)];
         
-        // Atomic transaction with DataManager
         if (DataManager.instance.consumeStockpile(selectedType)) {
-            // FIXED: 始终从当前战场的绝对左侧边界生成
-            // 不受缩放影响，不受摄像机位置影响，严格对应离散战场的起点
-            const currentStageStart = this.levelManager.currentStageIndex * STAGE_WIDTH;
-            
-            // 在左侧边缘附近生成，带一点点随机偏移避免完全重叠，但保持在“起点”概念范围内
-            const spawnX = currentStageStart + (Math.random() * 50);
+            // FIXED: Always spawn at start of current stage
+            const stageStartX = this.levelManager.currentStageIndex * STAGE_WIDTH;
+            const spawnX = stageStartX - 50 + (Math.random() * 50); 
 
             this.events.emit('REQUEST_SPAWN', {
                 faction: Faction.ZERG,
