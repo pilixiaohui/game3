@@ -3,7 +3,7 @@ import { DataManager, SimpleEventEmitter } from '../DataManager';
 import { UnitPool } from '../Unit';
 import { LevelManager } from '../managers/LevelManager';
 import { UnitType, Faction } from '../../types';
-import { UNIT_SCREEN_CAPS, UNIT_CONFIGS } from '../../constants';
+import { UNIT_SCREEN_CAPS, UNIT_CONFIGS, STAGE_WIDTH } from '../../constants';
 
 export class DeploymentSystem {
     private unitPool: UnitPool;
@@ -61,11 +61,12 @@ export class DeploymentSystem {
         
         // Atomic transaction with DataManager
         if (DataManager.instance.consumeStockpile(selectedType)) {
-            // Spawn logic: Reinforcements arrive from the "rear" (left of camera).
-            // Camera X tracks roughly the center of the screen.
-            // We increase safe distance to 1600 to support wide screens without pop-in.
-            const safeSpawnDistance = 1600;
-            const spawnX = this.levelManager.cameraX - safeSpawnDistance + (Math.random() * 200);
+            // FIXED: 始终从当前战场的绝对左侧边界生成
+            // 不受缩放影响，不受摄像机位置影响，严格对应离散战场的起点
+            const currentStageStart = this.levelManager.currentStageIndex * STAGE_WIDTH;
+            
+            // 在左侧边缘附近生成，带一点点随机偏移避免完全重叠，但保持在“起点”概念范围内
+            const spawnX = currentStageStart + (Math.random() * 50);
 
             this.events.emit('REQUEST_SPAWN', {
                 faction: Faction.ZERG,

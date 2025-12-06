@@ -1,12 +1,11 @@
 
-
 import { IGameEngine, IUnit, Faction, StatusType, ObstacleDef } from '../../types';
 import { UnitPool, Unit } from '../Unit';
 import { SpatialHash } from '../SpatialHash';
 import { LevelManager } from '../managers/LevelManager';
 import { DataManager } from '../DataManager';
 import { GeneLibrary, ReactionRegistry, StatusRegistry } from '../GeneSystem';
-import { LANE_Y, DECAY_TIME, STATUS_CONFIG, ELEMENT_COLORS, MAP_PLAYABLE_HEIGHT } from '../../constants';
+import { LANE_Y, DECAY_TIME, STATUS_CONFIG, ELEMENT_COLORS, MAP_PLAYABLE_HEIGHT, STAGE_WIDTH } from '../../constants';
 
 export class CombatSystem {
     private engine: IGameEngine;
@@ -149,6 +148,23 @@ export class CombatSystem {
         if (nextY < -MAP_PLAYABLE_HEIGHT) nextY = -MAP_PLAYABLE_HEIGHT;
         if (nextY > MAP_PLAYABLE_HEIGHT) nextY = MAP_PLAYABLE_HEIGHT;
         
+        // --- FIXED: 战场循环机制 (Battlefield Loop) ---
+        // 只有虫族单位需要循环，人类单位是防守方
+        if (u.faction === Faction.ZERG) {
+            const stageIndex = this.levelManager.currentStageIndex;
+            const stageStartX = stageIndex * STAGE_WIDTH;
+            const stageEndX = (stageIndex + 1) * STAGE_WIDTH;
+
+            // 如果冲出了当前战场的右边界，传送回左边界
+            // 这保证了在“攻坚”阶段（Locked），单位会源源不断地循环冲击
+            // 当关卡胜利（stageIndex增加）时，stageEndX 会变大，单位自然就“流”向了下一关，不再循环
+            if (nextX > stageEndX) {
+                nextX = stageStartX;
+                // 可选：重置Y坐标到随机位置以模拟新的一波，或者保持Y坐标
+                // u.y = LANE_Y + (Math.random() - 0.5) * 200; 
+            }
+        }
+
         u.x = nextX;
         u.y = nextY;
         
