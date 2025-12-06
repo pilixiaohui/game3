@@ -88,9 +88,14 @@ export class FlowField {
         for (let y = 0; y < this.rows; y++) {
             const idx = y * this.cols + (this.cols - 1);
             if (gridObstacles[idx] === 0) {
+                // If Siege Mode, add a small base cost (e.g., 10 steps) to the map exit.
+                // This ensures units prioritize attacking nearby walls (Cost 0) over walking past them,
+                // but if the wall path is blocked or broken, they will eventually choose the exit.
+                const baseCost = isSiege ? 10 : 0;
+
                 // Only mark if not already marked by a siege target (though overlap is fine with 0)
-                if (distanceField[idx] > 0) {
-                    distanceField[idx] = 0;
+                if (distanceField[idx] > baseCost) {
+                    distanceField[idx] = baseCost;
                     queue.push(idx);
                 }
             }

@@ -221,17 +221,20 @@ export class LevelManager {
             if (this.activeSiegeObstacleIds.has(obs)) {
                 this.activeSiegeObstacleIds.delete(obs);
 
-                // [FIX] Immediate state transition if siege is broken. 
-                // This prevents updateFlowField from running with isSiege=true but no targets,
-                // which would result in a zero-vector field and cause units to stall.
+                // Force update flow field immediately when a siege target breaks
+                // This ensures the gap is recognized as a valid path in the current frame or immediate next logic
+                this.updateFlowField();
+
                 if (this.activeSiegeObstacleIds.size === 0 && this.currentState === 'SIEGE') {
                     this.currentState = 'MARCH';
                     this.events.emit('FX', { type: 'TEXT', x: this.cameraX + 400, y: 0, text: "BREACH!", color: 0x00ff00, fontSize: 30 });
                 }
+            } else {
+                // If just a rock or non-siege obstacle, lazy update
+                this.flowFieldDirty = true;
             }
             
             this.events.emit('TERRAIN_UPDATE', this.activeObstacles);
-            this.flowFieldDirty = true;
             return true;
         }
         return false;
