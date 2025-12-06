@@ -3,7 +3,7 @@ import { DataManager, SimpleEventEmitter } from '../DataManager';
 import { UnitPool } from '../Unit';
 import { LevelManager } from '../managers/LevelManager';
 import { UnitType, Faction } from '../../types';
-import { UNIT_SCREEN_CAPS } from '../../constants';
+import { UNIT_SCREEN_CAPS, UNIT_CONFIGS } from '../../constants';
 
 export class DeploymentSystem {
     private unitPool: UnitPool;
@@ -29,7 +29,18 @@ export class DeploymentSystem {
 
         // 1. Check Stockpile
         const stockpile = DataManager.instance.state.hive.unitStockpile;
-        const availableTypes = (Object.keys(stockpile) as UnitType[]).filter(t => (stockpile[t] || 0) > 0);
+        
+        // Filter out NON_COMBAT units via tag system
+        const availableTypes = (Object.keys(stockpile) as UnitType[]).filter(t => {
+            const count = stockpile[t] || 0;
+            if (count <= 0) return false;
+
+            const config = UNIT_CONFIGS[t];
+            if (!config) return false;
+
+            const isNonCombat = config.tags?.includes('NON_COMBAT');
+            return !isNonCombat;
+        });
         
         if (availableTypes.length === 0) return;
 

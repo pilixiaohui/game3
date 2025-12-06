@@ -164,6 +164,7 @@ export const ZERG_UNIT_CONFIGS: Partial<Record<UnitType, UnitConfig>> = {
     growthFactors: { hp: 0.1, damage: 0.1 },
     baseLoadCapacity: 50,
     slots: [{ polarity: 'UNIVERSAL' }, { polarity: 'FUNCTION' }, { polarity: 'DEFENSE' }],
+    tags: ['NON_COMBAT'],
     visual: { shapes: [{ type: 'ROUNDED_RECT', cornerRadius: 10, widthPct: 1, heightPct: 1 }, { type: 'CIRCLE', radiusPct: 0.66, yOffPct: -1.0 }] },
     genes: [
         { id: 'GENE_ACQUIRE_TARGET' },
