@@ -178,7 +178,7 @@ export class CombatSystem {
     }
 
     private handleWallHit(u: Unit, wall: ObstacleDef, dt: number) {
-         if (u.faction === Faction.ZERG) {
+         if (u.faction === Faction.ZERG && wall.type !== 'WATER' && wall.type !== 'ROCK') {
              u.state = 'ATTACK';
              u.attackCooldown -= dt;
              if (u.attackCooldown <= 0) {
@@ -194,19 +194,28 @@ export class CombatSystem {
     }
 
     private checkWallCollision(x: number, y: number, r: number): ObstacleDef | null {
-        // Optimization check nearby
         for (const obs of this.levelManager.activeObstacles) {
-            if (Math.abs(obs.x - x) > 150) continue;
+            // FIX: Dynamic proximity check based on obstacle width
+            // Previously hardcoded to 150, which caused clipping through wide obstacles (like 400px walls or 1200px water)
+            const safeDistance = (obs.width / 2) + r + 50;
+            if (Math.abs(obs.x - x) > safeDistance) continue;
             
-            if (obs.type === 'WALL') {
+            if (obs.type === 'WALL' || obs.type === 'WATER') {
                 const wallLeft = obs.x - obs.width / 2;
                 const wallRight = obs.x + obs.width / 2;
                 const wallBottom = LANE_Y + obs.y;       
                 const wallTop = wallBottom - obs.height; 
 
-                // FIX: Y-axis check now includes radius 'r' to prevent clipping
                 if (x + r > wallLeft && x - r < wallRight &&
                     y + r > wallTop && y - r < wallBottom) {
+                    return obs;
+                }
+            } else if (obs.type === 'ROCK') {
+                const rockY = LANE_Y + obs.y - 15; 
+                const dx = x - obs.x;
+                const dy = y - rockY;
+                const radSum = (obs.width / 2) + r;
+                if (dx*dx + dy*dy < radSum * radSum) {
                     return obs;
                 }
             }
