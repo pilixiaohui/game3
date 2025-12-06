@@ -176,9 +176,18 @@ export class CombatSystem {
         // Optimization check nearby
         for (const obs of this.levelManager.activeObstacles) {
             if (Math.abs(obs.x - x) > 150) continue;
+            
             if (obs.type === 'WALL') {
-               if (x + r > obs.x - obs.width/2 && x - r < obs.x + obs.width/2 &&
-                   y > LANE_Y + obs.y - obs.height && y < LANE_Y + obs.y) return obs;
+                const wallLeft = obs.x - obs.width / 2;
+                const wallRight = obs.x + obs.width / 2;
+                const wallBottom = LANE_Y + obs.y;       
+                const wallTop = wallBottom - obs.height; 
+
+                // FIX: Y-axis check now includes radius 'r' to prevent clipping
+                if (x + r > wallLeft && x - r < wallRight &&
+                    y + r > wallTop && y - r < wallBottom) {
+                    return obs;
+                }
             }
         }
         return null;

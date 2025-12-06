@@ -1,5 +1,4 @@
 
-
 import { ChunkTemplate } from '../types';
 
 export const TERRAIN_CHUNKS: Record<string, ChunkTemplate[]> = {
@@ -18,8 +17,10 @@ export const TERRAIN_CHUNKS: Record<string, ChunkTemplate[]> = {
             width: 1200,
             isStronghold: true, // SIEGE ENCOUNTER
             obstacles: [
-                { type: 'WALL', x: 800, y: 0, width: 30, height: 250, health: 5000, maxHealth: 5000 }, // Top Wall (Blocks y < 0)
-                { type: 'WALL', x: 800, y: 350, width: 30, height: 250, health: 5000, maxHealth: 5000 }, // Bottom Wall (Blocks y > 100)
+                // Top Wall: Extended height to 500 to cover up to y=-500 (Map top is -450)
+                { type: 'WALL', x: 800, y: 0, width: 30, height: 500, health: 5000, maxHealth: 5000 }, 
+                // Bottom Wall: Adjusted y to 500 and height to 400 to cover 100 to 500 (Map bottom is 450)
+                { type: 'WALL', x: 800, y: 500, width: 30, height: 400, health: 5000, maxHealth: 5000 }, 
                 { type: 'ROCK', x: 400, y: 100, width: 60, height: 60 }
             ],
             spawnPoints: [
@@ -32,7 +33,8 @@ export const TERRAIN_CHUNKS: Record<string, ChunkTemplate[]> = {
             width: 1200,
             isStronghold: true, // SIEGE ENCOUNTER
             obstacles: [
-                { type: 'WALL', x: 600, y: 150, width: 40, height: 800, health: 12000, maxHealth: 12000 }, // Full Block
+                // Full Block: Covers -500 to +500
+                { type: 'WALL', x: 600, y: 500, width: 40, height: 1000, health: 12000, maxHealth: 12000 }, 
             ],
             spawnPoints: [
                 { x: 650, y: 50, type: 'HUMAN_TURRET_CANNON' }, 
@@ -54,8 +56,10 @@ export const TERRAIN_CHUNKS: Record<string, ChunkTemplate[]> = {
             id: 'narrow_pass',
             width: 1200,
             obstacles: [
+                // Top Block: Covers -500 to -100
                 { type: 'WALL', x: 600, y: -100, width: 200, height: 400, health: 8000, maxHealth: 8000 },
-                { type: 'WALL', x: 600, y: 400, width: 200, height: 400, health: 8000, maxHealth: 8000 },
+                // Bottom Block: Covers 400 to 800
+                { type: 'WALL', x: 600, y: 800, width: 200, height: 400, health: 8000, maxHealth: 8000 },
             ],
             spawnPoints: [
                 { x: 700, y: 150, type: 'HUMAN_FLAME_TANK' },
@@ -79,9 +83,9 @@ export const TERRAIN_CHUNKS: Record<string, ChunkTemplate[]> = {
             id: 'zigzag_corridor',
             width: 1200,
             obstacles: [
-                { type: 'WALL', x: 300, y: 0, width: 20, height: 300, health: 5000, maxHealth: 5000 },
-                { type: 'WALL', x: 600, y: 300, width: 20, height: 300, health: 5000, maxHealth: 5000 },
-                { type: 'WALL', x: 900, y: 0, width: 20, height: 300, health: 5000, maxHealth: 5000 },
+                { type: 'WALL', x: 300, y: 0, width: 20, height: 500, health: 5000, maxHealth: 5000 },
+                { type: 'WALL', x: 600, y: 500, width: 20, height: 500, health: 5000, maxHealth: 5000 },
+                { type: 'WALL', x: 900, y: 0, width: 20, height: 500, health: 5000, maxHealth: 5000 },
             ],
             spawnPoints: [
                 { x: 400, y: 250, type: 'HUMAN_MARINE' },
