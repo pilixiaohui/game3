@@ -59,7 +59,7 @@ export const ZERG_UNIT_CONFIGS: Partial<Record<UnitType, UnitConfig>> = {
     id: UnitType.MELEE,
     name: '跳虫 (Zergling)',
     baseStats: { hp: 60, damage: 15, range: 20, speed: 180, attackSpeed: 0.4, width: 24, height: 24, color: 0x3b82f6, armor: 0 },
-    baseCost: { biomass: 15, larva: 1, dna: 0, time: 1.0 },
+    baseCost: { biomass: 0, larva: 1, dna: 0, time: 0.2 }, //开发测试阶段特殊设置
     growthFactors: { hp: 0.2, damage: 0.2 },
     baseLoadCapacity: 30,
     slots: [{ polarity: 'ATTACK' }, { polarity: 'DEFENSE' }, { polarity: 'ATTACK' }, { polarity: 'FUNCTION' }, { polarity: 'UNIVERSAL' }],

@@ -1,6 +1,4 @@
 
-
-
 import { IGameEngine, IUnit, Faction, StatusType, ObstacleDef } from '../../types';
 import { UnitPool, Unit } from '../Unit';
 import { SpatialHash } from '../SpatialHash';
@@ -167,6 +165,7 @@ export class CombatSystem {
                  const destroyed = this.levelManager.damageObstacle(wall, u.stats.damage);
                  if (destroyed) {
                      this.engine.events.emit('FX', { type: 'EXPLOSION', x: wall.x, y: LANE_Y + wall.y - wall.height/2, radius: 100, color: 0x555555 });
+                     u.state = 'IDLE';
                  }
                  this.engine.events.emit('FX', { type: 'SLASH', x: wall.x - 20, y: u.y, targetX: wall.x, targetY: u.y, color: 0xff0000 });
              }

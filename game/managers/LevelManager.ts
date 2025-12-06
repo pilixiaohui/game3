@@ -24,6 +24,7 @@ export class LevelManager {
     // Siege Logic
     private currentSiegeTargetX: number = 0;
     private activeSiegeObstacleIds: Set<ObstacleDef> = new Set();
+    private flowFieldDirty: boolean = false;
 
     constructor(unitPool: UnitPool, events: SimpleEventEmitter) {
         this.unitPool = unitPool;
@@ -122,6 +123,11 @@ export class LevelManager {
             this.updateFlowField();
             this.cullOldObstacles();
         }
+
+        if (this.flowFieldDirty) {
+            this.updateFlowField();
+            this.flowFieldDirty = false;
+        }
     }
 
     private cullOldObstacles() {
@@ -149,7 +155,7 @@ export class LevelManager {
             ...def, 
             x: def.x + stageOffsetX, 
             maxHealth: def.health, 
-            health: def.health,
+            health: def.health, 
             chunkId: `${stageIndex}_${template.id}`
         }));
         
@@ -214,10 +220,18 @@ export class LevelManager {
             
             if (this.activeSiegeObstacleIds.has(obs)) {
                 this.activeSiegeObstacleIds.delete(obs);
+
+                // [FIX] Immediate state transition if siege is broken. 
+                // This prevents updateFlowField from running with isSiege=true but no targets,
+                // which would result in a zero-vector field and cause units to stall.
+                if (this.activeSiegeObstacleIds.size === 0 && this.currentState === 'SIEGE') {
+                    this.currentState = 'MARCH';
+                    this.events.emit('FX', { type: 'TEXT', x: this.cameraX + 400, y: 0, text: "BREACH!", color: 0x00ff00, fontSize: 30 });
+                }
             }
             
             this.events.emit('TERRAIN_UPDATE', this.activeObstacles);
-            this.updateFlowField();
+            this.flowFieldDirty = true;
             return true;
         }
         return false;

@@ -51,12 +51,9 @@ export class DeploymentSystem {
         // Atomic transaction with DataManager
         if (DataManager.instance.consumeStockpile(selectedType)) {
             // Spawn logic: Reinforcements arrive from the "rear" (left of camera).
-            // We spawn them far enough left to be "arriving" but close enough to join fight.
-            // Using a randomized offset behind the camera center.
-            let spawnX = this.levelManager.cameraX - 400 + (Math.random() * 150);
-            
-            // Hard limit: map start
-            if (spawnX < 50) spawnX = 50 + Math.random() * 50;
+            // Camera X tracks roughly the center of the screen.
+            // We spawn them sufficiently far back (-900) so they enter from off-screen left.
+            const spawnX = this.levelManager.cameraX - 900 + (Math.random() * 200);
 
             this.events.emit('REQUEST_SPAWN', {
                 faction: Faction.ZERG,

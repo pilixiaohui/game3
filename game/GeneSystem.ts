@@ -168,11 +168,14 @@ GeneLibrary.register({
         const neighbors = engine._sharedQueryBuffer;
         const count = engine.spatialHash.query(target.x, target.y, range, neighbors);
         
+        // Fix: Copy array to avoid buffer overwrite during recursive events
+        const targets: IUnit[] = [];
+        for(let i=0; i<count; i++) targets.push(neighbors[i]);
+
         const originalDmg = self.stats.damage;
         self.stats.damage = originalDmg * ratio;
         
-        for(let i=0; i<count; i++) {
-            const u = neighbors[i];
+        for(const u of targets) {
             if (u !== target && u !== self && u.faction !== self.faction && !u.isDead) {
                 engine.events.emit('REQUEST_DAMAGE_PIPELINE', { source: self, target: u });
             }
@@ -211,7 +214,7 @@ GeneLibrary.register({
         }
         
         if (nextTarget) {
-            engine.events.emit('FX', { type: 'PROJECTILE', x: target.x, y: target.y, x2: nextTarget.x, y2: nextTarget.y, color: 0xfacc15 });
+            engine.events.emit('FX', { type: 'PROJECTILE', x: target.x, y: target.y, x2: nextTarget!.x, y2: nextTarget!.y, color: 0xfacc15 });
             
             self.context.chainDepth = currentDepth + 1;
             const prevId = self.context.prevChainTargetId;
@@ -562,6 +565,10 @@ GeneLibrary.register({
                  const dy = entity.y - self.y;
                  const distSq = dx*dx + dy*dy;
                  
+                 // FLOOD MECHANIC: Zerg swarm should ignore enemies significantly behind them
+                 // This prevents the "turning back" issue where the swarm stalls
+                 if (self.faction === Faction.ZERG && dx < -100) continue; 
+
                  if (distSq < bestDist) {
                      bestDist = distSq;
                      bestTarget = entity;
@@ -648,8 +655,11 @@ GeneLibrary.register({
         const neighbors = engine._sharedQueryBuffer;
         const count = engine.spatialHash.query(target.x, target.y, radius, neighbors);
         
-        for (let i = 0; i < count; i++) {
-            const n = neighbors[i];
+        // Fix: Copy array to avoid buffer overwrite during recursive events
+        const targets: IUnit[] = [];
+        for(let i=0; i<count; i++) targets.push(neighbors[i]);
+
+        for (const n of targets) {
             if (n !== target && n.faction !== self.faction && !n.isDead) {
                 engine.events.emit('REQUEST_DAMAGE_PIPELINE', { source: self, target: n });
             }
@@ -698,8 +708,12 @@ GeneLibrary.register({
         
         const neighbors = engine._sharedQueryBuffer;
         const count = engine.spatialHash.query(self.x, self.y, radius, neighbors);
-        for (let i=0; i<count; i++) {
-            const n = neighbors[i];
+        
+        // Fix: Copy array to avoid buffer overwrite during recursive events
+        const targets: IUnit[] = [];
+        for(let i=0; i<count; i++) targets.push(neighbors[i]);
+
+        for (const n of targets) {
             if (n.faction !== self.faction && !n.isDead) {
                 engine.events.emit('REQUEST_TRUE_DAMAGE', { target: n, amount: dmg });
             }
@@ -755,16 +769,29 @@ GeneLibrary.register({
         else if (self.target && !self.target.isDead) {
             const distSq = (self.target.x - self.x)**2 + (self.target.y - self.y)**2;
             const dist = Math.sqrt(distSq);
-            if (dist > self.stats.range * 0.9) {
+            
+            // Should we chase?
+            // If Zerg, and target is behind us (to the left), only chase if very close.
+            const isTargetBehind = (self.faction === Faction.ZERG && self.target.x < self.x);
+            // Tighten chase threshold if behind to prevent stalling
+            const chaseThreshold = isTargetBehind ? 80 : self.stats.range * 0.9;
+
+            if (dist > chaseThreshold) {
                 // Blend Flow Field with Direct Seeking
                 const dirX = (self.target.x - self.x) / dist;
                 const dirY = (self.target.y - self.y) / dist;
                 
-                // IMPACT FIX: Reduce direct seek bias significantly to allow flow field (wall avoidance) to work
-                // Only bias heavily if very close (e.g. < 50px) or NOT in Siege
-                // In Siege mode, flow vector is smarter (navigates maze OR hits wall), so trust it more.
-                
+                // ADJUSTMENT: For Zerg, enforce forward flow bias to maintain "flood" feel.
+                // Decrease bias towards target if target is far or not directly ahead.
                 let bias = Math.min(0.6, 100 / (dist + 0.1)); 
+                
+                if (self.faction === Faction.ZERG) {
+                    bias = Math.min(0.4, 80 / (dist + 0.1)); // Cap bias at 40% for Zerg
+                    // CRITICAL: If target is behind, drastically reduce bias so FlowField (Right) wins
+                    // This forces the unit to keep flowing right even if engaged with a straggler, unless very close
+                    if (isTargetBehind) bias *= 0.05; 
+                }
+
                 if (isSiege) {
                     // In siege, reduce direct seeking bias so units flow through the maze/to the wall naturally
                     bias *= 0.5;
