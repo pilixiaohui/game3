@@ -62,9 +62,10 @@ export class UnitPool {
     // Reset Unit State
     unit.active = true; unit.isDead = false; unit.faction = faction; unit.type = type; unit.x = x; unit.level = level;
     
-    // UPDATED: Use full map playable height for spawn distribution
-    // MAP_PLAYABLE_HEIGHT is usually 450, representing a +/- 450 range from LANE_Y
-    const yRange = MAP_PLAYABLE_HEIGHT * 0.9; // 90% coverage to avoid wall clipping
+    // --- FIXED: 使用全地图高度生成，而不是狭窄的 LANE_HEIGHT ---
+    // MAP_PLAYABLE_HEIGHT 通常为 450，意味着 Y 范围是 -450 到 +450
+    // 我们乘以 0.95 留出一点边缘缓冲，防止生成在墙里
+    const yRange = MAP_PLAYABLE_HEIGHT * 0.95;
     const yOffset = (Math.random() - 0.5) * 2 * yRange; 
     unit.y = LANE_Y + yOffset;
 

@@ -43,9 +43,7 @@ export class WorldRenderer {
         await AssetManager.instance.loadResources();
         if (this.isDestroyed) return;
 
-        // 1. Create App (PixiJS v7/v8 Compatibility)
-        // Note: new Application({...}) is deprecated in v8, but we keep it as user code for now unless errors reported.
-        // Assuming v8 types for methods below.
+        // 1. Create App (PixiJS v7 compatible)
         this.app = new Application({ 
             resizeTo: this.element, 
             backgroundColor: 0x0a0a0a, 
@@ -169,10 +167,9 @@ export class WorldRenderer {
         s.scale.set(data.scaleX, 1.0);
         s.tint = 0x333333; s.alpha = 0.7;
         
-        // FIX: PixiJS v8 render signature (options object)
-        this.app.renderer.render({
-            container: s,
-            target: this.decalRenderTexture,
+        // Fix: Use correct v7 render signature (displayObject, options)
+        this.app.renderer.render(s, {
+            renderTexture: this.decalRenderTexture,
             clear: false
         });
     }

@@ -53,6 +53,8 @@ export class TextureFactory {
             if (!config) continue;
 
             const g = this.createUnitGraphic(type);
+            
+            // Fix: Use getLocalBounds for accurate dimensions in v7
             const bounds = g.getLocalBounds(); 
             const w = Math.ceil(bounds.width);
             const h = Math.ceil(bounds.height);
@@ -63,12 +65,14 @@ export class TextureFactory {
                 rowHeight = 0;
             }
 
+            // Position graphic relative to its bounds to ensure it draws inside the allocated cell
             g.position.set(currentX - bounds.x, currentY - bounds.y);
             container.addChild(g);
 
             mapping[type] = {
                 rect: new Rectangle(currentX, currentY, w, h),
                 anchor: {
+                    // Calculate normalized anchor based on negative bounds origin (usually center)
                     x: -bounds.x / w,
                     y: -bounds.y / h
                 }
@@ -85,16 +89,15 @@ export class TextureFactory {
         // Final update for the last row's height
         if (currentY + rowHeight > maxUsedY) maxUsedY = currentY + rowHeight;
         
-        // Add padding to total size to prevent any rounding errors at the edge
+        // Add padding to total size
         maxUsedX += PADDING;
         maxUsedY += PADDING;
 
         try {
-            // FIX: PixiJS v8 generateTexture signature (options object)
-            this._atlasTexture = this._renderer.generateTexture({
-                target: container,
+            // Fix: v7 generateTexture signature (container, options)
+            this._atlasTexture = this._renderer.generateTexture(container, {
                 resolution: 2,
-                frame: new Rectangle(0, 0, maxUsedX, maxUsedY)
+                region: new Rectangle(0, 0, maxUsedX, maxUsedY)
             });
         } catch (e) {
             console.error("Texture baking failed:", e);
@@ -103,11 +106,11 @@ export class TextureFactory {
         }
 
         for (const [type, data] of Object.entries(mapping)) {
-            // FIX: PixiJS v8 Texture constructor signature (options object)
-            const texture = new Texture({
-                source: this._atlasTexture.source,
-                frame: data.rect
-            });
+            // Fix: v7 Texture constructor (baseTexture, frame)
+            const texture = new Texture(
+                this._atlasTexture.baseTexture, 
+                data.rect
+            );
             
             // Default anchor
             (texture as any).defaultAnchor = { x: data.anchor.x, y: data.anchor.y };
@@ -131,6 +134,7 @@ export class TextureFactory {
         const visual = config.visual;
         const sScale = visual?.shadowScale || 1.0;
         
+        // Shadow
         g.beginFill(0x000000, 0.4);
         g.drawEllipse(0, 0, (width / 1.8) * sScale, (width / 4) * sScale);
         g.endFill();
@@ -142,6 +146,7 @@ export class TextureFactory {
                 const w = width * (shape.widthPct ?? 1.0);
                 const h = height * (shape.heightPct ?? 1.0);
                 const cx = width * (shape.xOffPct ?? 0);
+                // Base Y is 0 (feet), most shapes grow up (-y)
                 const cy = -height/2 + (height * (shape.yOffPct ?? 0)); 
 
                 g.beginFill(shapeColor);
@@ -161,6 +166,7 @@ export class TextureFactory {
             g.endFill();
         }
         
+        // Highlight
         g.beginFill(0xffffff, 0.8);
         g.drawCircle(width * 0.2, -height + (height * 0.2), 2);
         g.endFill();
