@@ -1,7 +1,7 @@
 
 import { Graphics, Text, TextStyle } from 'pixi.js';
 import { Faction, GameModifiers, UnitType, GameStateSnapshot, IUnit, IGameEngine, StatusType, ElementType, ObstacleDef } from '../types';
-import { ELEMENT_COLORS, UNIT_SCREEN_CAPS, STAGE_WIDTH } from '../constants';
+import { ELEMENT_COLORS, UNIT_SCREEN_CAPS, STAGE_WIDTH, MAP_PLAYABLE_HEIGHT } from '../constants';
 import { DataManager, SimpleEventEmitter } from './DataManager';
 import { SpatialHash } from './SpatialHash';
 import { WorldRenderer } from './renderers/WorldRenderer';
@@ -100,9 +100,19 @@ export class GameEngine implements IGameEngine {
       if (!this.renderer || !this.renderer.app) return;
       
       const screenWidth = this.renderer.app.screen.width;
+      const screenHeight = this.renderer.app.screen.height;
       
       // Calculate scale to fit STAGE_WIDTH into the screen width exactly at zoom 1.0
-      const fitScale = screenWidth / STAGE_WIDTH;
+      const scaleX = screenWidth / STAGE_WIDTH;
+      
+      // Calculate scale to fit vertical map height
+      // The total vertical play area is +/- MAP_PLAYABLE_HEIGHT (so *2) plus some padding (200px)
+      const totalBattleHeight = (MAP_PLAYABLE_HEIGHT * 2) + 200;
+      const scaleY = screenHeight / totalBattleHeight;
+
+      // Use the smaller scale to ensure 'contain' behavior (entire map fits)
+      const fitScale = Math.min(scaleX, scaleY);
+      
       const finalScale = fitScale * this.userZoom;
       
       this.renderer.resize(finalScale, this.levelManager.cameraX, this.mode);

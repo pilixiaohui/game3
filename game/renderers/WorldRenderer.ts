@@ -233,10 +233,24 @@ export class WorldRenderer {
     public resize(scaleFactor: number, cameraX: number, mode: string) {
         if (!this.app) return;
         this.world.scale.set(scaleFactor);
-        if (mode === 'HIVE') { this.world.position.set(this.app.screen.width / 2, this.app.screen.height / 2); this.world.pivot.set(0, 0); }
-        else { this.world.position.set(this.app.screen.width / 2, this.app.screen.height * 0.6); this.world.pivot.set(0, 0); }
-        this.bgLayer.width = this.app.screen.width; this.bgLayer.height = this.app.screen.height;
-        this.groundLayer.width = this.app.screen.width; this.groundLayer.height = this.app.screen.height; this.groundLayer.y = this.world.y;
+        
+        if (mode === 'HIVE') { 
+            this.world.position.set(this.app.screen.width / 2, this.app.screen.height / 2); 
+            this.world.pivot.set(0, 0); 
+        }
+        else { 
+            // Center the map vertically to prevent bottom clipping
+            this.world.position.set(this.app.screen.width / 2, this.app.screen.height * 0.5); 
+            this.world.pivot.set(0, 0); 
+        }
+
+        this.bgLayer.width = this.app.screen.width; 
+        this.bgLayer.height = this.app.screen.height;
+        
+        this.groundLayer.width = this.app.screen.width; 
+        this.groundLayer.height = this.app.screen.height; 
+        this.groundLayer.y = this.world.y;
+        
         this.world.pivot.x = mode === 'COMBAT_VIEW' ? cameraX : 0;
         this.groundLayer.tilePosition.x = -this.world.pivot.x * 0.5;
         this.bgLayer.tilePosition.x = -this.world.pivot.x * 0.1;
