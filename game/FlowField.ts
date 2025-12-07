@@ -4,7 +4,7 @@ import { ObstacleDef } from '../types';
 import { LANE_Y, MAP_PLAYABLE_HEIGHT } from '../../constants';
 
 export class FlowField {
-    private cellSize: number = 40;
+    private cellSize: number = 10;
     private cols: number = 0;
     private rows: number = 0;
     private field: Float32Array; 
