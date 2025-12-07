@@ -1,4 +1,3 @@
-
 import { Application, Container, Graphics, TilingSprite, Text, TextStyle, Texture, Sprite, RenderTexture } from 'pixi.js';
 import { IUnit, ObstacleDef, UnitType, Faction, IFxEvent, HarvestNodeDef } from '../../types';
 import { LANE_Y, UNIT_CONFIGS, ELEMENT_COLORS } from '../../constants';
@@ -349,7 +348,7 @@ export class WorldRenderer {
                 g.endFill();
 
                 // Standing Visual Body
-                const visualHeight = Math.max(o.height * 1.5, 120); 
+                const visualHeight = o.height; // Logic and visual match exactly for consistency
                 
                 g.beginFill(0x444444);
                 g.lineStyle(2, 0x666666);
